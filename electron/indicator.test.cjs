@@ -16,6 +16,8 @@ let createdFromPath = [];
 let traySetImageCalls = [];
 let traySetTitleCalls = [];
 let traySetToolTipCalls = [];
+let traySetContextMenuCalls = 0;
+let trayPopUpContextMenuCalls = 0;
 let ipcHandlers = new Map();
 let nextNativeImageIsEmpty = false;
 let templateImages = [];
@@ -64,11 +66,19 @@ const installMocks = () => {
           createdTrayArgs.push([image, guid]);
         }
 
-        setContextMenu() {}
+        setContextMenu() {
+          traySetContextMenuCalls++;
+        }
+
+        popUpContextMenu() {
+          trayPopUpContextMenuCalls++;
+        }
 
         on(eventName, handler) {
           if (eventName === 'click') {
             this._clickHandler = handler;
+          } else if (eventName === 'right-click') {
+            this._rightClickHandler = handler;
           }
         }
 
@@ -173,6 +183,8 @@ test.beforeEach(() => {
   traySetImageCalls = [];
   traySetTitleCalls = [];
   traySetToolTipCalls = [];
+  traySetContextMenuCalls = 0;
+  trayPopUpContextMenuCalls = 0;
   ipcHandlers = new Map();
   nextNativeImageIsEmpty = false;
   templateImages = [];
@@ -362,6 +374,26 @@ test('macOS hands the tray 16pt template images regardless of source asset size'
     assert.deepEqual(image.getSize(), { width: 16, height: 16 }, image.iconPath);
     assert.equal(image.isTemplate, true, `not a template image: ${image.iconPath}`);
   }
+});
+
+test('macOS tray separates primary click popover from native context menu', () => {
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: 'darwin',
+  });
+  const indicator = loadIndicatorModule();
+  indicator.initIndicator({
+    showApp: () => {},
+    quitApp: () => {},
+    app: { on: () => {} },
+    ICONS_FOLDER: '/icons/',
+    forceDarkTray: false,
+  });
+
+  assert.equal(traySetContextMenuCalls, 0);
+  const fakeTray = indicator.ensureIndicator();
+  fakeTray._rightClickHandler?.();
+  assert.equal(trayPopUpContextMenuCalls, 1);
 });
 
 test('initIndicator falls back to icon path if NativeImage creation is empty', () => {

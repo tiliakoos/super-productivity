@@ -651,6 +651,9 @@ const appCloseHandler = (app: App): void => {
     if (ids.length === 0) {
       // Destroy task widget before closing main window
       destroyTaskWidget();
+      // Re-assert quit intent: the 5s flag may have expired while waiting
+      // for before-close IPC (sync / finish-day).
+      setIsQuitRequested(true);
       mainWin.close();
     }
   });
@@ -659,6 +662,12 @@ const appCloseHandler = (app: App): void => {
     // NOTE: this might not work if we run a second instance of the app
     log('close event: isQuiting=', getIsQuiting(), 'pendingBeforeCloseIds=', ids);
     if (!getIsQuiting()) {
+      if (IS_MAC && !getIsQuitRequested()) {
+        event.preventDefault();
+        mainWin.hide();
+        return;
+      }
+
       if (getIsMinimizeToTray() && !getIsQuitRequested()) {
         const indicator = ensureIndicator();
         if (indicator) {

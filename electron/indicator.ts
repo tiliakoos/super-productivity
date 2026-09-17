@@ -192,21 +192,33 @@ const createTray = (): Tray => {
   } else {
     nextTray = new Tray(trayIcon);
   }
-  nextTray.setContextMenu(createContextMenu());
+  setTrayContextMenu(nextTray, createContextMenu());
 
   nextTray.on('click', () => {
     if (IS_MAC) toggleTrayPopover(nextTray);
     else indicatorConfig?.showApp();
   });
+  if (IS_MAC) {
+    nextTray.on('right-click', () =>
+      nextTray.popUpContextMenu(createContextMenu(_lastMsg)),
+    );
+  }
 
   return nextTray;
+};
+
+const setTrayContextMenu = (
+  tr: Tray,
+  menu: ReturnType<typeof Menu.buildFromTemplate>,
+): void => {
+  if (!IS_MAC) tr.setContextMenu(menu);
 };
 
 const hideTrayPopover = (): void => {
   if (trayPopover && !trayPopover.isDestroyed()) trayPopover.hide();
 };
 
-const showTrayPopover = (tr: Tray): void => {
+const positionTrayPopover = (tr: Tray): void => {
   if (!trayPopover || trayPopover.isDestroyed()) return;
   const { x, y, height } = tr.getBounds();
   const { width } = trayPopover.getBounds();
@@ -223,6 +235,11 @@ const showTrayPopover = (tr: Tray): void => {
     ),
   );
   trayPopover.setPosition(nextX, nextY, false);
+};
+
+const showTrayPopover = (tr: Tray): void => {
+  if (!trayPopover || trayPopover.isDestroyed()) return;
+  positionTrayPopover(tr);
   trayPopover.webContents.send(IPC.TRAY_POPOVER_STATE, {
     tasks: _todayTasks,
     projects: _projects,
@@ -248,13 +265,16 @@ const toggleTrayPopover = (tr: Tray): void => {
   assertSecureWebPreferences(webPreferences, 'tray-popover');
   trayPopover = new BrowserWindow({
     width: 360,
-    height: 460,
+    height: 160,
     show: false,
     frame: false,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     transparent: true,
+    hasShadow: true,
+    vibrancy: IS_MAC ? 'popover' : undefined,
+    visualEffectState: IS_MAC ? 'active' : undefined,
     webPreferences,
   });
   trayPopover.loadFile(join(__dirname, 'tray-popover.html'));
@@ -341,7 +361,7 @@ function initListeners(): void {
         todayTasksStr !== _lastTodayTasksStr;
 
       if (isMenuChanged) {
-        tray.setContextMenu(createContextMenu(menuMsg));
+        setTrayContextMenu(tray, createContextMenu(menuMsg));
         _lastMsg = menuMsg;
         _lastIsRunning = _isRunning;
         _lastCurrentTaskId = _currentTaskId;
@@ -430,7 +450,7 @@ function initListeners(): void {
           todayTasksStr !== _lastTodayTasksStr;
 
         if (isMenuChanged) {
-          tray.setContextMenu(createContextMenu(menuMsg));
+          setTrayContextMenu(tray, createContextMenu(menuMsg));
           _lastMsg = menuMsg;
           _lastIsRunning = _isRunning;
           _lastCurrentTaskId = _currentTaskId;
@@ -491,7 +511,7 @@ function initListeners(): void {
           (_todayTasks || []).map((t) => ({ id: t.id, title: t.title })),
         );
         if (todayTasksStr !== _lastTodayTasksStr) {
-          tray.setContextMenu(createContextMenu(_lastMsg));
+          setTrayContextMenu(tray, createContextMenu(_lastMsg));
           _lastTodayTasksStr = todayTasksStr;
         }
       }
@@ -536,6 +556,12 @@ function initListeners(): void {
   ipcMain.on(IPC.TRAY_POPOVER_QUIT, (ev) => {
     if (trayPopover && ev.sender === trayPopover.webContents) _quitApp();
   });
+  ipcMain.on(IPC.TRAY_POPOVER_FIT, (ev, height: unknown) => {
+    if (!trayPopover || ev.sender !== trayPopover.webContents) return;
+    if (typeof height !== 'number' || !isFinite(height) || height < 80) return;
+    trayPopover.setContentSize(360, Math.min(Math.round(height), 560));
+    if (tray) positionTrayPopover(tray);
+  });
 
   // ipcMain.on(IPC.POMODORO_UPDATE, (ev, params) => {
   // const isOnBreak = params.isOnBreak;
@@ -560,7 +586,7 @@ const syncTray = (tr: Tray): void => {
       )
     : _lastMsg;
 
-  tr.setContextMenu(createContextMenu(menuMsg));
+  setTrayContextMenu(tr, createContextMenu(menuMsg));
 
   const isTrayShowCurrentTask = getIsTrayShowCurrentTask();
   const isTrayShowCurrentCountdown = getIsTrayShowCurrentCountdown();

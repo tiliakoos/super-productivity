@@ -28,4 +28,5 @@ export type TrayPopoverAPI = {
   add: (payload: TrayPopoverAddPayload) => void;
   showMain: () => void;
   quit: () => void;
+  fit: (height: number) => void;
 };

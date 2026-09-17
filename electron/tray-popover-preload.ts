@@ -17,5 +17,6 @@ const api: TrayPopoverAPI = {
     ipcRenderer.send(IPC.TRAY_POPOVER_ADD, payload),
   showMain: () => ipcRenderer.send(IPC.TRAY_POPOVER_MAIN),
   quit: () => ipcRenderer.send(IPC.TRAY_POPOVER_QUIT),
+  fit: (height: number) => ipcRenderer.send(IPC.TRAY_POPOVER_FIT, height),
 };
 contextBridge.exposeInMainWorld('trayPopoverAPI', api);

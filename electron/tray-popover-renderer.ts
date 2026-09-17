@@ -16,7 +16,8 @@ trayPopoverAPI.onState((state: TrayPopoverSnapshot) => {
   document.getElementById('today')!.textContent = labels.today || '';
   more.setAttribute('aria-label', labels.more || '');
   input.setAttribute('aria-label', labels.add || '');
-  input.placeholder = labels.add || '…';
+  input.placeholder = labels.add?.includes('#') ? 'Add task' : labels.add || 'Add task';
+  input.title = labels.add || '';
   select.setAttribute('aria-label', labels.project || '');
   addButton.setAttribute('aria-label', labels.add || '');
   mainButton.textContent = labels.openMain || '';
@@ -33,13 +34,20 @@ trayPopoverAPI.onState((state: TrayPopoverSnapshot) => {
       c.type = 'checkbox';
       c.setAttribute('aria-label', `${labels.complete || ''} ${task.title}`.trim());
       c.onchange = () => trayPopoverAPI.complete(task.id);
+      const check = document.createElement('label');
+      check.className = 'check';
+      check.append(c);
       const b = document.createElement('button');
       b.textContent = task.title;
       b.onclick = () => trayPopoverAPI.open(task.id);
       const p = document.createElement('span');
       p.className = 'project';
       p.textContent = task.projectName;
-      li.append(c, b, p);
+      li.append(check, b, p);
+      li.onclick = (e) => {
+        if (e.target === c || e.target === check) return;
+        trayPopoverAPI.open(task.id);
+      };
       return li;
     }),
   );
@@ -49,6 +57,10 @@ trayPopoverAPI.onState((state: TrayPopoverSnapshot) => {
     empty.textContent = labels.empty || '';
     list.append(empty);
   }
+  const root = document.querySelector('main');
+  requestAnimationFrame(() =>
+    trayPopoverAPI.fit(root ? Math.ceil(root.getBoundingClientRect().height) : 0),
+  );
 });
 document.getElementById('add')!.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -58,10 +70,22 @@ document.getElementById('add')!.addEventListener('submit', (event) => {
   trayPopoverAPI.add({ title, projectId });
   input.value = '';
 });
+const closeMenu = (): void => {
+  menu.hidden = true;
+  more.setAttribute('aria-expanded', 'false');
+};
 more.addEventListener('click', () => {
   const open = menu.hidden;
   menu.hidden = !open;
-  document.getElementById('more')!.setAttribute('aria-expanded', String(open));
+  more.setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('click', (e) => {
+  if (!menu.hidden && e.target !== more && !menu.contains(e.target as Node | null)) {
+    closeMenu();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') closeMenu();
 });
 document.getElementById('main')!.onclick = trayPopoverAPI.showMain;
 document.getElementById('quit')!.onclick = trayPopoverAPI.quit;
