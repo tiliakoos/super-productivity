@@ -2515,6 +2515,8 @@
     "SUBMIT": "Submit",
     "TITLE": "Title",
     "TODAY": "Today",
+    "TRAY_POPOVER_OPEN_MAIN": "Open Main Window",
+    "TRAY_POPOVER_EMPTY": "No pending tasks",
     "TODAY_TAG_TITLE": "Today",
     "TOGGLE_PASSWORD_VISIBILITY": "Toggle password visibility",
     "TOMORROW": "Tomorrow",

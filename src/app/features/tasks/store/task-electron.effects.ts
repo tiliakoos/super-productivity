@@ -9,9 +9,13 @@ import {
   tap,
   throttleTime,
   withLatestFrom,
+  combineLatestWith,
+  distinctUntilChanged,
+  map,
 } from 'rxjs/operators';
 import { selectCurrentTask, selectTaskEntities } from './task.selectors';
 import { selectTodayTaskIds } from '../../work-context/store/work-context.selectors';
+import { selectAllProjects } from '../../project/store/project.selectors';
 import { GlobalConfigService } from '../../config/global-config.service';
 import {
   selectIsOsProgressBarOwnedBySession,
@@ -33,6 +37,11 @@ import { IPC } from '../../../../../electron/shared-with-frontend/ipc-events.con
 import { TaskService } from '../task.service';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import { LOCAL_ACTIONS } from '../../../util/local-actions.token';
+import { WorkContextType } from '../../work-context/work-context.model';
+import { DateService } from '../../../core/date/date.service';
+import { NavigateToTaskService } from '../../../core-ui/navigate-to-task/navigate-to-task.service';
+import { TranslateService } from '@ngx-translate/core';
+import { T } from '../../../t.const';
 
 // TODO send message to electron when current task changes here
 
@@ -43,12 +52,46 @@ export class TaskElectronEffects {
   private _configService = inject(GlobalConfigService);
   private _focusModeService = inject(FocusModeService);
   private _taskService = inject(TaskService);
+  private _dateService = inject(DateService);
+  private _navigateToTaskService = inject(NavigateToTaskService);
+  private _translateService = inject(TranslateService);
 
   // -----------------------------------------------------------------------------------
   // NOTE: IS_ELECTRON checks not necessary, since we check before importing this module
   // -----------------------------------------------------------------------------------
 
   constructor() {
+    window.ea.on(IPC.TRAY_POPOVER_COMPLETE, (id: unknown) => {
+      if (typeof id === 'string') this._taskService.setDone(id);
+    });
+    window.ea.on(IPC.TRAY_POPOVER_OPEN, (id: unknown) => {
+      if (typeof id === 'string') void this._navigateToTaskService.navigate(id);
+    });
+    window.ea.on(IPC.TRAY_POPOVER_ADD, (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const { title, projectId } = payload as { title?: unknown; projectId?: unknown };
+      if (typeof title !== 'string' || !title.trim() || typeof projectId !== 'string')
+        return;
+      const trimmedTitle = title.trim();
+      this._store$.pipe(select(selectAllProjects), take(1)).subscribe((projects) => {
+        if (!projects.some((p) => p.id === projectId && !p.isArchived)) return;
+        const task = this._taskService.createNewTaskWithDefaults({
+          title: trimmedTitle,
+          workContextType: WorkContextType.PROJECT,
+          workContextId: projectId,
+          additional: { dueDay: this._dateService.todayStr() },
+        });
+        this._store$.dispatch(
+          TaskSharedActions.addTask({
+            task,
+            workContextId: projectId,
+            workContextType: WorkContextType.PROJECT,
+            isAddToBacklog: false,
+            isAddToBottom: true,
+          }),
+        );
+      });
+    });
     /**
      * SYNC-SAFE: This IPC listener is safe during sync/hydration because:
      * - Read-only operation - only reads current state and sends to Electron
@@ -88,18 +131,48 @@ export class TaskElectronEffects {
     () =>
       this._store$.pipe(
         select(selectTodayTaskIds),
-        withLatestFrom(this._store$.pipe(select(selectTaskEntities))),
-        tap(([todayTaskIds, taskEntities]) => {
+        combineLatestWith(
+          this._store$.pipe(select(selectTaskEntities)),
+          this._store$.pipe(select(selectAllProjects)),
+        ),
+        map(([todayTaskIds, taskEntities, projects]) => {
+          const projectNames = new Map(
+            projects.map((project) => [project.id, project.title]),
+          );
           const tasks = todayTaskIds
             .map((id) => taskEntities[id])
             .filter((t) => !!t && !t.isDone)
             .map((t) => ({
               id: t!.id,
               title: t!.title,
-              timeEstimate: t!.timeEstimate,
-              timeSpent: t!.timeSpent,
+              projectId: t!.projectId,
+              projectName: projectNames.get(t!.projectId) || '',
             }));
-          window.ea.updateTodayTasks(tasks);
+          return {
+            tasks,
+            projects: projects
+              .filter((p) => !p.isArchived)
+              .map((p) => ({ id: p.id, title: p.title })),
+          };
+        }),
+        distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+        combineLatestWith(this._translateService.onLangChange.pipe(startWith(null))),
+        tap(([snapshot]) => {
+          window.ea.updateTodayTasks({
+            ...snapshot,
+            labels: {
+              today: this._translateService.instant(T.G.TODAY),
+              more: this._translateService.instant(T.G.MORE_ACTIONS),
+              complete: this._translateService.instant(T.G.COMPLETE),
+              add: this._translateService.instant(
+                T.F.TASK.ADD_TASK_BAR.PLACEHOLDER_CREATE,
+              ),
+              project: this._translateService.instant(T.F.BOARDS.FORM.PROJECT),
+              quit: this._translateService.instant(T.F.FINISH_DAY_BEFORE_EXIT.C.QUIT),
+              openMain: this._translateService.instant(T.G.TRAY_POPOVER_OPEN_MAIN),
+              empty: this._translateService.instant(T.G.TRAY_POPOVER_EMPTY),
+            },
+          });
         }),
       ),
     { dispatch: false },

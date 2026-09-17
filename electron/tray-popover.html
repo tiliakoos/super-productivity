@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self';"
+    />
+    <link
+      rel="stylesheet"
+      href="tray-popover.css"
+    />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="today"></h1>
+        <button
+          id="more"
+          aria-label=""
+          aria-expanded="false"
+        >
+          …
+        </button>
+      </header>
+      <form id="add">
+        <input
+          id="title"
+          aria-label=""
+          placeholder="…"
+        /><select
+          id="project"
+          aria-label=""
+        ></select
+        ><button aria-label="">+</button>
+      </form>
+      <ul id="tasks"></ul>
+      <menu
+        id="menu"
+        hidden
+      >
+        <li><button id="main"></button></li>
+        <li><button id="quit"></button></li>
+      </menu>
+    </main>
+    <script src="tray-popover-renderer.js"></script>
+  </body>
+</html>

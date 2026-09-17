@@ -6,18 +6,30 @@ import {
   nativeImage,
   nativeTheme,
   Tray,
+  BrowserWindow,
+  BrowserWindowConstructorOptions,
+  screen,
 } from 'electron';
 import { log } from 'electron-log/main';
 import { IPC } from './shared-with-frontend/ipc-events.const';
 import { getDistChannel } from './shared-with-frontend/get-dist-channel';
 import { getIsTrayShowCurrentTask, getIsTrayShowCurrentCountdown } from './shared-state';
 import { TaskCopy } from '../src/app/features/tasks/task.model';
+import { join } from 'path';
+import { assertSecureWebPreferences } from './web-preferences-guard';
 import { release } from 'os';
 import {
   initTaskWidgetSettingsListener,
   updateTaskWidgetTask,
 } from './task-widget/task-widget';
 import { getWin } from './main-window';
+import {
+  TrayPopoverSnapshot,
+  TrayPopoverAddPayload,
+  TrayPopoverTask,
+  TrayPopoverProject,
+  TrayPopoverLabels,
+} from './shared-with-frontend/tray-popover.model';
 
 type IndicatorConfig = {
   showApp: () => void;
@@ -31,16 +43,23 @@ let tray: Tray | undefined;
 let indicatorConfig: IndicatorConfig | undefined;
 let _showApp: () => void;
 let _quitApp: () => void;
-let _todayTasks: {
-  id: string;
-  title: string;
-  timeEstimate: number;
-  timeSpent: number;
-}[] = [];
+let _todayTasks: TrayPopoverTask[] = [];
+let _projects: TrayPopoverProject[] = [];
+let _labels: TrayPopoverLabels = {
+  today: '',
+  more: '',
+  complete: '',
+  add: '',
+  project: '',
+  quit: '',
+  openMain: '',
+  empty: '',
+};
 let _isRunning: boolean = false;
 let _currentTaskId: string | null = null;
 let DIR: string;
 let shouldUseDarkColors: boolean;
+let trayPopover: BrowserWindow | null = null;
 
 // Caching variables for preventing Linux tray menu flickering
 let _lastMsg: string | undefined;
@@ -176,10 +195,75 @@ const createTray = (): Tray => {
   nextTray.setContextMenu(createContextMenu());
 
   nextTray.on('click', () => {
-    indicatorConfig?.showApp();
+    if (IS_MAC) toggleTrayPopover(nextTray);
+    else indicatorConfig?.showApp();
   });
 
   return nextTray;
+};
+
+const hideTrayPopover = (): void => {
+  if (trayPopover && !trayPopover.isDestroyed()) trayPopover.hide();
+};
+
+const showTrayPopover = (tr: Tray): void => {
+  if (!trayPopover || trayPopover.isDestroyed()) return;
+  const { x, y, height } = tr.getBounds();
+  const { width } = trayPopover.getBounds();
+  const work = screen.getDisplayMatching(tr.getBounds()).workArea;
+  const nextX = Math.max(
+    work.x,
+    Math.min(work.x + work.width - width, Math.round(x) - Math.round(width * 0.5)),
+  );
+  const nextY = Math.max(
+    work.y,
+    Math.min(
+      work.y + work.height - trayPopover.getBounds().height,
+      Math.round(y + height),
+    ),
+  );
+  trayPopover.setPosition(nextX, nextY, false);
+  trayPopover.webContents.send(IPC.TRAY_POPOVER_STATE, {
+    tasks: _todayTasks,
+    projects: _projects,
+    labels: _labels,
+  });
+  trayPopover.show();
+  trayPopover.focus();
+};
+
+const toggleTrayPopover = (tr: Tray): void => {
+  if (trayPopover && !trayPopover.isDestroyed()) {
+    if (trayPopover.isVisible()) hideTrayPopover();
+    else showTrayPopover(tr);
+    return;
+  }
+  const webPreferences: BrowserWindowConstructorOptions['webPreferences'] = {
+    preload: join(__dirname, 'tray-popover-preload.js'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    sandbox: true,
+  };
+  assertSecureWebPreferences(webPreferences, 'tray-popover');
+  trayPopover = new BrowserWindow({
+    width: 360,
+    height: 460,
+    show: false,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    transparent: true,
+    webPreferences,
+  });
+  trayPopover.loadFile(join(__dirname, 'tray-popover.html'));
+  trayPopover.on('blur', hideTrayPopover);
+  trayPopover.on('closed', () => (trayPopover = null));
+  trayPopover.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape') hideTrayPopover();
+  });
+  trayPopover.webContents.on('did-finish-load', () => showTrayPopover(tr));
 };
 
 // eslint-disable-next-line prefer-arrow/prefer-arrow-functions
@@ -190,6 +274,8 @@ function initAppListeners(app: App): void {
 
   _isAppListenersInitialized = true;
   app.on('before-quit', () => {
+    hideTrayPopover();
+    trayPopover?.destroy();
     if (tray) {
       destroyTray();
     }
@@ -387,17 +473,68 @@ function initListeners(): void {
     },
   );
 
-  ipcMain.on(IPC.TODAY_TASKS_UPDATED, (ev: IpcMainEvent, tasks: any[]) => {
-    _todayTasks = tasks;
-    if (tray) {
-      const todayTasksStr = JSON.stringify(
-        (_todayTasks || []).map((t) => ({ id: t.id, title: t.title })),
-      );
-      if (todayTasksStr !== _lastTodayTasksStr) {
-        tray.setContextMenu(createContextMenu(_lastMsg));
-        _lastTodayTasksStr = todayTasksStr;
+  ipcMain.on(
+    IPC.TODAY_TASKS_UPDATED,
+    (ev: IpcMainEvent, snapshot: TrayPopoverSnapshot) => {
+      if (
+        ev.sender !== getWin()?.webContents ||
+        !snapshot ||
+        !snapshot.labels ||
+        typeof snapshot.labels !== 'object'
+      )
+        return;
+      _todayTasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+      _projects = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
+      _labels = snapshot.labels;
+      if (tray) {
+        const todayTasksStr = JSON.stringify(
+          (_todayTasks || []).map((t) => ({ id: t.id, title: t.title })),
+        );
+        if (todayTasksStr !== _lastTodayTasksStr) {
+          tray.setContextMenu(createContextMenu(_lastMsg));
+          _lastTodayTasksStr = todayTasksStr;
+        }
       }
-    }
+      if (trayPopover && !trayPopover.isDestroyed() && trayPopover.isVisible()) {
+        trayPopover.webContents.send(IPC.TRAY_POPOVER_STATE, {
+          tasks: _todayTasks,
+          projects: _projects,
+          labels: _labels,
+        });
+      }
+    },
+  );
+
+  ipcMain.on(IPC.TRAY_POPOVER_COMPLETE, (_ev, id: string) => {
+    if (!trayPopover || _ev.sender !== trayPopover.webContents) return;
+    if (typeof id !== 'string' || !_todayTasks.some((task) => task.id === id)) return;
+    getWin()?.webContents.send(IPC.TRAY_POPOVER_COMPLETE, id);
+  });
+  ipcMain.on(IPC.TRAY_POPOVER_OPEN, (_ev, id: string) => {
+    if (!trayPopover || _ev.sender !== trayPopover.webContents) return;
+    if (typeof id !== 'string' || !_todayTasks.some((task) => task.id === id)) return;
+    getWin()?.webContents.send(IPC.TRAY_POPOVER_OPEN, id);
+    _showApp();
+    hideTrayPopover();
+  });
+  ipcMain.on(IPC.TRAY_POPOVER_ADD, (_ev, data: TrayPopoverAddPayload) => {
+    if (!trayPopover || _ev.sender !== trayPopover.webContents) return;
+    if (
+      !data ||
+      typeof data.title !== 'string' ||
+      typeof data.projectId !== 'string' ||
+      !_projects.some((project) => project.id === data.projectId)
+    )
+      return;
+    getWin()?.webContents.send(IPC.TRAY_POPOVER_ADD, data);
+  });
+  ipcMain.on(IPC.TRAY_POPOVER_MAIN, (ev) => {
+    if (!trayPopover || ev.sender !== trayPopover.webContents) return;
+    hideTrayPopover();
+    _showApp();
+  });
+  ipcMain.on(IPC.TRAY_POPOVER_QUIT, (ev) => {
+    if (trayPopover && ev.sender === trayPopover.webContents) _quitApp();
   });
 
   // ipcMain.on(IPC.POMODORO_UPDATE, (ev, params) => {

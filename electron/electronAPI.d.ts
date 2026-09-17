@@ -23,6 +23,7 @@ import {
 } from './shared-with-frontend/local-rest-api.model';
 import { ElectronDistChannel } from './shared-with-frontend/get-dist-channel';
 import { JiraElectronApi } from './shared-with-frontend/jira-request.model';
+import { TrayPopoverSnapshot } from './shared-with-frontend/tray-popover.model';
 
 export interface ElectronAPI {
   on(channel: string, listener: (...args: unknown[]) => void): void;
@@ -264,9 +265,7 @@ export interface ElectronAPI {
     focusModeMode?: string,
   );
 
-  updateTodayTasks(
-    tasks: { id: string; title: string; timeEstimate: number; timeSpent: number }[],
-  ): void;
+  updateTodayTasks(snapshot: TrayPopoverSnapshot): void;
 
   onSwitchTask(listener: (taskId: string) => void): void;
 

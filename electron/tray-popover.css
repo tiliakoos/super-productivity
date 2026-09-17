@@ -1,0 +1,99 @@
+:root {
+  --fg: #222;
+  --bg: #fff;
+  --muted: #777;
+  --line: #bbb;
+  --pad: 14px;
+  --gap: 8px;
+  --radius: 12px;
+  --shadow: 0 8px 30px #0003;
+  font:
+    13px system-ui,
+    sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #eee;
+    --bg: #222;
+    --muted: #aaa;
+    --line: #666;
+  }
+}
+body {
+  margin: 0;
+}
+main {
+  padding: var(--pad);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+header,
+form,
+li {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+h1 {
+  font-size: 17px;
+  margin: 0;
+  flex: 1;
+}
+button,
+input,
+select {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+input {
+  flex: 1;
+  border-bottom: 1px solid var(--line);
+}
+button {
+  cursor: pointer;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+ul {
+  list-style: none;
+  padding: 6px 0;
+  margin: 0;
+  max-height: 330px;
+  overflow-y: auto;
+}
+li {
+  min-height: 44px;
+}
+li button:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+.project {
+  color: var(--muted);
+  font-size: 11px;
+}
+.empty {
+  color: var(--muted);
+  justify-content: center;
+}
+#menu {
+  position: absolute;
+  right: 12px;
+  top: 50px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 6px;
+}
+#menu button {
+  width: 150px;
+  text-align: left;
+}

@@ -228,7 +228,7 @@ const ea: ElectronAPI = {
       focusModeMode,
     ),
 
-  updateTodayTasks: (tasks: any[]) => _send('TODAY_TASKS_UPDATED', tasks),
+  updateTodayTasks: (snapshot) => _send(IPC.TODAY_TASKS_UPDATED, snapshot),
 
   onSwitchTask: (listener: (taskId: string) => void) => {
     // We register the listener directly without using standard 'on' method
