@@ -84,57 +84,40 @@
   }
 }
 
-.priority-indicator {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  margin: 0 var(--s-quarter);
+// Priority reads as a coloured icon only (like the overdue schedule icon and
+// the time-conflict "!"); the colour lives inside task-priority-indicator's
+// own encapsulation, so no colour rule here can leak into nested sub-task rows.
+task-priority-indicator {
   align-self: center;
-  vertical-align: middle;
-  font-size: 18px;
-
-  mat-icon {
-    width: 18px;
-    height: 18px;
-    font-size: 18px;
-  }
+  margin: 0 var(--s-quarter);
 
   @include isDoneForFirstLine {
     opacity: var(--task-is-done-dim-opacity);
   }
 }
 
-:host.priority-high .priority-indicator {
-  color: var(--color-danger);
-}
+// Row tint by priority, kept on this branch (dropped from the upstream PR).
+// Anchored to the owning row across SwipeBlock's projection wrapper, the same
+// way the isSelected / isCurrent rules are, so it can never reach a nested
+// sub-task row, and keyed on the data-priority host attribute. Only the resting
+// surface is tinted: selection, the current task and done rows keep their own.
+$priority-tints: (
+  'high': var(--color-danger),
+  'medium': var(--color-warning),
+  'low': var(--c-primary),
+);
 
-:host.priority-medium .priority-indicator {
-  color: var(--color-warning);
-}
-
-:host.priority-low .priority-indicator {
-  color: var(--c-primary);
-}
-
-:host.priority-high:not(.isSelected):not(.isMultiSelected):not(.isCurrent):not(.isDone)
-  .inner-wrapper
-  > .box {
-  background: color-mix(in srgb, var(--color-danger) 8%, var(--task-c-bg));
-}
-
-:host.priority-medium:not(.isSelected):not(.isMultiSelected):not(.isCurrent):not(.isDone)
-  .inner-wrapper
-  > .box {
-  background: color-mix(in srgb, var(--color-warning) 8%, var(--task-c-bg));
-}
-
-:host.priority-low:not(.isSelected):not(.isMultiSelected):not(.isCurrent):not(.isDone)
-  .inner-wrapper
-  > .box {
-  background: color-mix(in srgb, var(--c-primary) 8%, var(--task-c-bg));
+@each $priority, $color in $priority-tints {
+  :host[data-priority='#{$priority}']:not(.isSelected):not(.isMultiSelected):not(
+      .isCurrent
+    ):not(.isDone)
+    > swipe-block
+    ::ng-deep
+    > .inner-wrapper
+    > .inner-wrapper
+    > .box {
+    background: color-mix(in srgb, #{$color} 8%, var(--task-c-bg));
+  }
 }
 
 @mixin timeWrapperMinimalStyles() {
