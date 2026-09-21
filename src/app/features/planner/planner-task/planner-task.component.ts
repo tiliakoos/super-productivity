@@ -89,6 +89,9 @@ import { TODAY_TAG } from '../../tag/tag.const';
     '[class.isDragReady]': 'isDragReady()',
     '[class.isCurrent]': 'isCurrent()',
     '[class.isMultiSelected]': 'isMultiSelected()',
+    // The row tint in this component's stylesheet keys on it (kept on this
+    // branch, dropped upstream), the same attribute the task row carries.
+    '[attr.data-priority]': 'task().priority',
   },
   /* eslint-enable @typescript-eslint/naming-convention */
 })

@@ -835,6 +835,20 @@ describe('PlannerTaskComponent', () => {
         withoutPriority.fixture.nativeElement.querySelector('task-priority-indicator'),
       ).toBeNull();
     });
+
+    it('carries the priority as a host attribute for the row tint', () => {
+      const withPriority = create(makeTask({ priority: 'high' }));
+      expect(
+        (withPriority.fixture.nativeElement as HTMLElement).getAttribute('data-priority'),
+      ).toBe('high');
+
+      const withoutPriority = create(makeTask());
+      expect(
+        (withoutPriority.fixture.nativeElement as HTMLElement).hasAttribute(
+          'data-priority',
+        ),
+      ).toBeFalse();
+    });
   });
 
   describe('done toggle (#9929 fallout)', () => {

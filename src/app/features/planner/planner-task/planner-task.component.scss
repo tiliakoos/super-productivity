@@ -53,6 +53,26 @@
   box-shadow: var(--task-current-shadow);
 }
 
+// Row tint by priority, kept on this branch (dropped from the upstream PR) and
+// matching the Today row's tint in _task-controls.scss. Only the resting surface
+// is tinted: the current task, selection, done rows and the drag lift keep their
+// own background. `:not(.isDragReady)` is load-bearing: this chain is more
+// specific than the isDragReady rule above, so source order alone would not
+// let the lift win.
+$priority-tints: (
+  'high': var(--color-danger),
+  'medium': var(--color-warning),
+  'low': var(--c-primary),
+);
+
+@each $priority, $color in $priority-tints {
+  :host[data-priority='#{$priority}']:not(.isCurrent):not(.isMultiSelected):not(
+      .isDone
+    ):not(.isDragReady) {
+    background: color-mix(in srgb, #{$color} 8%, var(--task-c-bg));
+  }
+}
+
 .no-drag {
   display: flex;
   align-items: center;
