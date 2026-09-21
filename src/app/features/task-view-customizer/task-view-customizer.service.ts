@@ -382,6 +382,18 @@ export class TaskViewCustomizerService {
         );
       }
 
+      case SORT_OPTION_TYPE.dayOrder: {
+        // Raw keys, so only meaningful within one day's list (Today); unkeyed
+        // and done tasks sort last and keep their relative order.
+        const getOrderKey = (t: TaskWithSubTasks): number =>
+          !t.isDone && typeof t.orderKey === 'number' ? t.orderKey : Infinity;
+        return tasksCopy.sort((a, b) => {
+          const ka = getOrderKey(a);
+          const kb = getOrderKey(b);
+          return ka === kb ? 0 : (ka - kb) * factor;
+        });
+      }
+
       case SORT_OPTION_TYPE.creationDate:
         return tasksCopy.sort((a, b) => (a.created - b.created) * factor);
 

@@ -38,6 +38,10 @@
           ></done-toggle>
         }
 
+        @if (orderRank(); as r) {
+          <span class="order-badge">{{ r }}</span>
+        }
+
         <div class="title-and-tags-wrapper">
           @if (!isInSubTaskList() && t.parentId) {
             <div class="parent-title">

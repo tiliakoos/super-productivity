@@ -26,6 +26,8 @@ import { TaskService } from '../task.service';
 import { WorkContextService } from '../../work-context/work-context.service';
 import { TaskComponent } from './task.component';
 import { TagService } from '../../tag/tag.service';
+import { TaskOrderService } from '../task-order.service';
+import { EMPTY_TASK_ORDER_INDEX } from '../task-order.util';
 import { SnackService } from '../../../core/snack/snack.service';
 import { TranslateService } from '@ngx-translate/core';
 import { LocaleDatePipe } from '../../../ui/pipes/locale-date.pipe';
@@ -177,6 +179,10 @@ describe('TaskComponent shortcut handling', () => {
         {
           provide: TagService,
           useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
+        {
+          provide: TaskOrderService,
+          useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
         },
         {
           provide: SnackService,

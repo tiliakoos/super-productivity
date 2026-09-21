@@ -340,6 +340,31 @@ describe('TaskViewCustomizerService', () => {
     ]);
   });
 
+  it('should sort by day order with unkeyed and done tasks last', () => {
+    const tasks: TaskWithSubTasks[] = [
+      { ...mockTasks[0], id: 'unkeyed' },
+      { ...mockTasks[1], id: 'third', orderKey: 30 },
+      { ...mockTasks[2], id: 'done-keyed', orderKey: 1, isDone: true },
+      { ...mockTasks[0], id: 'first', orderKey: 10 },
+    ];
+
+    const asc = service['applySort'](tasks, SORT_OPTION_TYPE.dayOrder);
+    const desc = service['applySort'](tasks, SORT_OPTION_TYPE.dayOrder, SORT_ORDER.DESC);
+
+    expect(asc.map((task) => task.id)).toEqual([
+      'first',
+      'third',
+      'unkeyed',
+      'done-keyed',
+    ]);
+    expect(desc.map((task) => task.id)).toEqual([
+      'unkeyed',
+      'done-keyed',
+      'third',
+      'first',
+    ]);
+  });
+
   it('should place date-only tasks after timed tasks on the same scheduled day', () => {
     const scheduledAt = (day: string, time: string): number =>
       getDateTimeFromClockString(time, parseDbDateStr(day));

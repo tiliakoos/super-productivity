@@ -315,6 +315,23 @@ done-toggle {
   margin-right: 0;
 }
 
+// Day-order badge: the task's rank among its day's ordered, undone tasks.
+.order-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  margin-right: var(--s-quarter);
+}
+
 //
 .play-icon-indicator {
   @include center;

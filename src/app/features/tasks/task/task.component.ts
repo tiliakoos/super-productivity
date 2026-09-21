@@ -111,6 +111,7 @@ import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions'
 import { environment } from '../../../../environments/environment';
 import { IN_PROGRESS_TAG, TODAY_TAG } from '../../tag/tag.const';
 import { TagService } from '../../tag/tag.service';
+import { TaskOrderService } from '../task-order.service';
 import { GlobalTrackingIntervalService } from '../../../core/global-tracking-interval/global-tracking-interval.service';
 import { LayoutService } from '../../../core-ui/layout/layout.service';
 import { TaskFocusService } from '../task-focus.service';
@@ -207,6 +208,7 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
   private readonly _multiSelect = inject(TaskMultiSelectService);
   private readonly _taskMoveToProjectService = inject(TaskMoveToProjectService);
   private readonly _tagService = inject(TagService);
+  private readonly _taskOrder = inject(TaskOrderService);
 
   readonly workContextService = inject(WorkContextService);
   readonly layoutService = inject(LayoutService);
@@ -220,6 +222,7 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
 
   // Use shared signals from services to avoid creating 600+ subscriptions on initial render
   isCurrent = computed(() => this._taskService.currentTaskId() === this.task().id);
+  orderRank = computed(() => this._taskOrder.index().rankById[this.task().id]);
   isSelected = computed(() => this._taskService.selectedTaskId() === this.task().id);
   // Part of the transient multi-selection (modifier click, Shift+Arrow, X,
   // Ctrl/Cmd+A, touch tap in selection mode).
@@ -1442,6 +1445,10 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
 
   onTagsUpdated(tagIds: string[]): void {
     this._taskService.updateTags(this.task(), tagIds);
+  }
+
+  setOrderRank(rank: number | null): void {
+    this._taskOrder.setRank(this.task(), rank);
   }
 
   toggleInProgress(): void {

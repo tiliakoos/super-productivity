@@ -60,6 +60,8 @@ import {
 import { WorkContextType } from '../../work-context/work-context.model';
 import { IN_PROGRESS_TAG, TODAY_TAG } from '../../tag/tag.const';
 import { TagService } from '../../tag/tag.service';
+import { TaskOrderService } from '../../tasks/task-order.service';
+import { orderRankFromKey } from '../../tasks/task-order.util';
 
 @Component({
   selector: 'planner-task',
@@ -108,6 +110,7 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
   private _dateService = inject(DateService);
   private _dateAdapter = inject(DateAdapter);
   private _tagService = inject(TagService);
+  private _taskOrder = inject(TaskOrderService);
   private _isTaskDeleteTriggered = false;
   private _isDestroyed = false;
   private _completionFocusFallback?: {
@@ -149,6 +152,7 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
   readonly isCurrent = computed<boolean>(
     () => this.task().id === this._taskService.currentTaskId(),
   );
+  readonly orderRank = computed(() => this._taskOrder.index().rankById[this.task().id]);
 
   @HostListener('contextmenu', ['$event'])
   onContextMenu(event: MouseEvent): void {
@@ -419,6 +423,7 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!keys) {
       return;
     }
+    const orderRank = orderRankFromKey(keyboardEvent);
     if (checkKeyCombo(keyboardEvent, keys.selectPreviousTask)) {
       this._moveFocus('ArrowUp');
     } else if (checkKeyCombo(keyboardEvent, keys.selectNextTask)) {
@@ -427,6 +432,8 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
       this._runCompletionWithFocus();
     } else if (checkKeyCombo(keyboardEvent, keys.taskToggleInProgress)) {
       this.toggleInProgress();
+    } else if (orderRank !== undefined) {
+      this.setOrderRank(orderRank);
     } else if (
       checkKeyCombo(keyboardEvent, keys.togglePlay) &&
       this._configService.appFeatures().isTimeTrackingEnabled
@@ -471,6 +478,10 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     event.preventDefault();
+  }
+
+  setOrderRank(rank: number | null): void {
+    this._taskOrder.setRank(this.task(), rank);
   }
 
   toggleInProgress(): void {

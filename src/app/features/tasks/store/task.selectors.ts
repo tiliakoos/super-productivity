@@ -22,6 +22,7 @@ import {
 import { dateStrToUtcDate } from '../../../util/date-str-to-utc-date';
 import { isTodayWithOffset } from '../../../util/is-today.util';
 import { getTimeConflictTaskIds } from '../util/get-time-conflict-task-ids';
+import { buildTaskOrderIndex } from '../task-order.util';
 import { getEndOfTodayTime, isInLaterTodayWindow } from '../util/later-today-window';
 import {
   getLogicalTodayStartMs,
@@ -189,6 +190,7 @@ export interface SchedulingSnapshot {
   readonly deadlineWithTime: number | null;
   readonly parentId: string | null;
   readonly subTaskIds: string[];
+  readonly orderKey: number | null;
 }
 
 export interface SnapshotStructureEntry {
@@ -208,6 +210,7 @@ const _schedulingSnapEqual = (a: SchedulingSnapshot, b: SchedulingSnapshot): boo
   a.deadlineDay === b.deadlineDay &&
   a.deadlineWithTime === b.deadlineWithTime &&
   a.parentId === b.parentId &&
+  a.orderKey === b.orderKey &&
   fastArrayCompare(a.subTaskIds, b.subTaskIds);
 
 // Builds a scheduling snapshot from an ordered task array. A per-id cache keyed
@@ -245,6 +248,7 @@ const createSchedulingSnapshotProjector = (): ((
           deadlineWithTime: task.deadlineWithTime ?? null,
           parentId: task.parentId ?? null,
           subTaskIds: task.subTaskIds,
+          orderKey: task.orderKey ?? null,
         };
         snap = cached && _schedulingSnapEqual(cached.snap, built) ? cached.snap : built;
         cache.set(task.id, { taskRef: task, snap });
@@ -276,6 +280,14 @@ const createSchedulingSnapshotProjector = (): ((
 export const selectTaskSchedulingSnapshot = createSelector(
   selectAllTasksInActiveProjects,
   createSchedulingSnapshotProjector(),
+);
+
+// Per-day order ranks (badge) and per-day keyed lists. Off the snapshot so a
+// timeSpent-only tick is skipped, like every other decision selector here.
+export const selectTaskOrderIndex = createSelector(
+  selectTaskSchedulingSnapshot,
+  selectStartOfNextDayDiffMs,
+  buildTaskOrderIndex,
 );
 
 // Snapshot over ALL tasks (incl. archived-project tasks) — mirrors the unfiltered

@@ -102,6 +102,15 @@ export interface TaskCopy
   priority?: TaskPriority | null;
 
   /**
+   * Optional day-order sort key. The badge on the row is this task's 1-based rank
+   * among the undone tasks planned for the same day that also carry a key (see
+   * `buildTaskOrderIndex`). Only the task being positioned is ever written; done
+   * tasks keep the key and are skipped, so undoing restores their place.
+   * Persisted as an optional field (no schema bump).
+   */
+  orderKey?: number | null;
+
+  /**
    * Scheduled time as Unix timestamp (ms). For tasks scheduled with a specific time.
    *
    * IMPORTANT: dueWithTime and dueDay follow a mutual exclusivity pattern:

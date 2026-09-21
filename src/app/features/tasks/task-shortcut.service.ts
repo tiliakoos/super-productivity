@@ -1,4 +1,5 @@
 import { computed, inject, Injectable } from '@angular/core';
+import { orderRankFromKey } from './task-order.util';
 import { TaskFocusService } from './task-focus.service';
 import { TaskService } from './task.service';
 import { GlobalConfigService } from '../config/global-config.service';
@@ -139,6 +140,15 @@ export class TaskShortcutService {
     // All other shortcuts require a focused task
     if (!focusedTaskId) {
       return false;
+    }
+
+    // Bare digits set (1-9) or clear (0) the focused task's day order. Not
+    // configurable: ten keys for one gesture would not earn the settings surface.
+    const orderRank = orderRankFromKey(ev);
+    if (orderRank !== undefined) {
+      this._handleTaskShortcut(focusedTaskId, 'setOrderRank', orderRank);
+      ev.preventDefault();
+      return true;
     }
 
     // Ctrl+C / Cmd+C: copy the focused task and its sub tasks as a markdown

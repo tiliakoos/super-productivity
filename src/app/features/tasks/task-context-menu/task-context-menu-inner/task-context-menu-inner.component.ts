@@ -67,6 +67,7 @@ import { showFocusOverlay } from '../../../focus-mode/store/focus-mode.actions';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TagService } from '../../../tag/tag.service';
 import { IN_PROGRESS_TAG } from '../../../tag/tag.const';
+import { TaskOrderService } from '../../task-order.service';
 import { DialogPromptComponent } from '../../../../ui/dialog-prompt/dialog-prompt.component';
 import { TaskSharedActions } from '../../../../root-store/meta/task-shared.actions';
 import { selectTodayTaskIds } from '../../../work-context/store/work-context.selectors';
@@ -117,6 +118,7 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
   private readonly _store = inject(Store);
   private readonly _dateAdapter = inject(DateAdapter);
   private readonly _tagService = inject(TagService);
+  private readonly _taskOrder = inject(TaskOrderService);
   private readonly _translateService = inject(TranslateService);
   private readonly _workContextService = inject(WorkContextService);
   private readonly _taskFocusService = inject(TaskFocusService);
@@ -579,6 +581,15 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
   }
 
   readonly IN_PROGRESS_TAG_ID = IN_PROGRESS_TAG.id;
+  readonly ORDER_RANKS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  get orderRank(): number | undefined {
+    return this._taskOrder.index().rankById[this.task.id];
+  }
+
+  setOrderRank(rank: number | null): void {
+    this._taskOrder.setRank(this.task, rank);
+  }
 
   toggleInProgress(): void {
     this._tagService.ensureInProgressTag();

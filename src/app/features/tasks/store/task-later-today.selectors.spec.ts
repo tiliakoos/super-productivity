@@ -23,6 +23,7 @@ const runLaterToday = (
       deadlineWithTime: t.deadlineWithTime ?? null,
       parentId: t.parentId ?? null,
       subTaskIds: t.subTaskIds,
+      orderKey: t.orderKey ?? null,
     }));
   const structure = selectLaterTodayStructure.projector(
     snapshot,

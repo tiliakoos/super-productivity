@@ -26,6 +26,8 @@ import {
 import { WorkContextType } from '../../work-context/work-context.model';
 import { TODAY_TAG } from '../../tag/tag.const';
 import { TagService } from '../../tag/tag.service';
+import { TaskOrderService } from '../../tasks/task-order.service';
+import { EMPTY_TASK_ORDER_INDEX, TaskOrderIndex } from '../../tasks/task-order.util';
 
 const makeTask = (overrides: Partial<TaskCopy> = {}): TaskCopy =>
   ({
@@ -38,6 +40,7 @@ const makeTask = (overrides: Partial<TaskCopy> = {}): TaskCopy =>
 
 describe('PlannerTaskComponent', () => {
   let currentTaskId: WritableSignal<string | null>;
+  let orderIndex: WritableSignal<TaskOrderIndex>;
   let taskServiceMock: { toggleDoneWithAnimation: jasmine.Spy };
   let storeMock: jasmine.SpyObj<Store>;
   let matDialogMock: jasmine.SpyObj<MatDialog>;
@@ -74,6 +77,7 @@ describe('PlannerTaskComponent', () => {
 
   beforeEach(() => {
     currentTaskId = signal<string | null>(null);
+    orderIndex = signal<TaskOrderIndex>(EMPTY_TASK_ORDER_INDEX);
     taskServiceMock = {
       ...jasmine.createSpyObj('TaskService', [
         'setSelectedId',
@@ -122,6 +126,10 @@ describe('PlannerTaskComponent', () => {
         {
           provide: TagService,
           useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
+        {
+          provide: TaskOrderService,
+          useValue: { index: orderIndex, setRank: jasmine.createSpy('setRank') },
         },
         {
           provide: DateService,
@@ -853,6 +861,20 @@ describe('PlannerTaskComponent', () => {
           'data-priority',
         ),
       ).toBeFalse();
+    });
+  });
+
+  describe('day order badge', () => {
+    it('shows the rank from the shared order index and nothing otherwise', () => {
+      orderIndex.set({ rankById: { t1: 2 }, keyedByDay: {} });
+      const ranked = create(makeTask());
+      expect(
+        ranked.fixture.nativeElement.querySelector('.order-badge')?.textContent?.trim(),
+      ).toBe('2');
+
+      orderIndex.set(EMPTY_TASK_ORDER_INDEX);
+      ranked.fixture.detectChanges();
+      expect(ranked.fixture.nativeElement.querySelector('.order-badge')).toBeNull();
     });
   });
 

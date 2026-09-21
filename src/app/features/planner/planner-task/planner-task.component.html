@@ -19,6 +19,10 @@
     ></done-toggle>
 
     <div class="no-drag">
+      @if (orderRank(); as r) {
+        <span class="order-badge">{{ r }}</span>
+      }
+
       <div class="wrap">
         @if (parentTitle) {
           <div class="parent-title">{{ parentTitle }}</div>

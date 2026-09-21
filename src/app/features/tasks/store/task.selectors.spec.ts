@@ -232,6 +232,7 @@ describe('Task Selectors', () => {
     fromSelectors.selectAllRepeatableTaskWithSubTasks.clearResult();
     fromSelectors.selectTaskByIdWithSubTaskData.clearResult();
     fromSelectors.selectOverdueTasksWithSubTasks.clearResult();
+    fromSelectors.selectTaskOrderIndex.clearResult();
     fromSelectors.selectLaterTodayTasksWithSubTasks.clearResult();
     fromSelectors.selectAllTasks.clearResult();
     fromSelectors.selectAllTasksInActiveProjects.clearResult();
@@ -1383,6 +1384,27 @@ describe('Task Selectors', () => {
         expect(r2).not.toBe(r1);
         expect(r2[idx]).not.toBe(r1[idx]);
         expect(r2[idx].dueDay).toBe(today);
+      });
+
+      it('returns a changed element when orderKey changes', () => {
+        const r1 = fromSelectors.selectTaskSchedulingSnapshot(mockState);
+        const idx = r1.findIndex((s) => s.id === 'task4');
+        const r2 = fromSelectors.selectTaskSchedulingSnapshot(
+          patchTask('task4', { orderKey: 5 }),
+        );
+        expect(r2[idx]).not.toBe(r1[idx]);
+        expect(r2[idx].orderKey).toBe(5);
+      });
+    });
+
+    describe('selectTaskOrderIndex', () => {
+      it('ranks undone keyed tasks within their planned day', () => {
+        expect(fromSelectors.selectTaskOrderIndex(mockState).rankById).toEqual({});
+        const index = fromSelectors.selectTaskOrderIndex(
+          patchTask('task4', { dueDay: today, orderKey: 2 }),
+        );
+        expect(index.rankById).toEqual({ task4: 1 });
+        expect(index.keyedByDay[today]).toEqual([{ id: 'task4', orderKey: 2 }]);
       });
     });
 

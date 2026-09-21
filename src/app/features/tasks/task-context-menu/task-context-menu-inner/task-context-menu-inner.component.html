@@ -331,6 +331,21 @@
     </span>
   </button>
 
+  @if (!task.isDone) {
+    <button
+      #orderMenuTrigger="matMenuTrigger"
+      [matMenuTriggerFor]="orderMenu"
+      mat-menu-item
+      [menuTouchFix]="orderMenuTrigger"
+      (menuOpened)="focusFirstSubmenuItem(orderMenu)"
+    >
+      <span class="menuItemLeft">
+        <mat-icon>format_list_numbered</mat-icon>
+        {{ T.F.TASK.CMP.ORDER | translate }}
+      </span>
+    </button>
+  }
+
   <button
     #tagMenuTrigger="matMenuTrigger"
     [matMenuTriggerFor]="tagMenu"
@@ -468,6 +483,31 @@
       <mat-icon>check</mat-icon>
     }
     {{ T.F.TASK.CMP.PRIORITY_NONE | translate }}
+  </button>
+</mat-menu>
+
+<mat-menu #orderMenu="matMenu">
+  @for (rank of ORDER_RANKS; track rank) {
+    <button
+      mat-menu-item
+      menuTouchFix
+      (click)="setOrderRank(rank)"
+    >
+      @if (orderRank === rank) {
+        <mat-icon>check</mat-icon>
+      }
+      {{ rank }}
+    </button>
+  }
+  <button
+    mat-menu-item
+    menuTouchFix
+    (click)="setOrderRank(null)"
+  >
+    @if (!orderRank) {
+      <mat-icon>check</mat-icon>
+    }
+    {{ T.F.TASK.CMP.ORDER_NONE | translate }}
   </button>
 </mat-menu>
 

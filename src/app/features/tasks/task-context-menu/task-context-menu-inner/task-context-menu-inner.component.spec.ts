@@ -10,6 +10,8 @@ import { SnackService } from '../../../../core/snack/snack.service';
 import { ProjectService } from '../../../project/project.service';
 import { GlobalConfigService } from '../../../config/global-config.service';
 import { TagService } from '../../../tag/tag.service';
+import { TaskOrderService } from '../../task-order.service';
+import { EMPTY_TASK_ORDER_INDEX } from '../../task-order.util';
 import { TranslateModule } from '@ngx-translate/core';
 import { WorkContextService } from '../../../work-context/work-context.service';
 import { TaskFocusService } from '../../task-focus.service';
@@ -87,6 +89,10 @@ describe('TaskContextMenuInnerComponent', () => {
       providers: [
         provideMockStore(),
         { provide: TaskService, useValue: taskService },
+        {
+          provide: TaskOrderService,
+          useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
+        },
         { provide: TaskDuplicateService, useValue: taskDuplicateService },
         { provide: AddSubtaskInputService, useValue: addSubtaskInputService },
         {

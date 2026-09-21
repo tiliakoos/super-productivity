@@ -441,6 +441,38 @@ describe('TaskShortcutService', () => {
       expect(mockTaskComponent.duplicateTask).not.toHaveBeenCalled();
     });
 
+    it('should set the day order from a bare digit and clear it with 0', () => {
+      const mockTaskComponent = {
+        task: () => ({ id: 'focused-task-1' }),
+        setOrderRank: jasmine.createSpy('setOrderRank'),
+        taskContextMenu: () => undefined,
+      };
+      setFocusedTask('focused-task-1');
+      mockTaskFocusService.lastFocusedTaskComponent.set(mockTaskComponent);
+
+      expect(service.handleTaskShortcuts(createKeyboardEvent('2', 'Digit2'))).toBe(true);
+      expect(mockTaskComponent.setOrderRank).toHaveBeenCalledWith(2);
+      expect(service.handleTaskShortcuts(createKeyboardEvent('0', 'Digit0'))).toBe(true);
+      expect(mockTaskComponent.setOrderRank).toHaveBeenCalledWith(null);
+    });
+
+    it('should leave modified digits alone', () => {
+      const mockTaskComponent = {
+        task: () => ({ id: 'focused-task-1' }),
+        setOrderRank: jasmine.createSpy('setOrderRank'),
+        taskContextMenu: () => undefined,
+      };
+      setFocusedTask('focused-task-1');
+      mockTaskFocusService.lastFocusedTaskComponent.set(mockTaskComponent);
+
+      const result = service.handleTaskShortcuts(
+        createKeyboardEvent('2', 'Digit2', { ctrlKey: true }),
+      );
+
+      expect(result).toBe(false);
+      expect(mockTaskComponent.setOrderRank).not.toHaveBeenCalled();
+    });
+
     it('should bind R to toggling the in-progress tag', () => {
       const mockTaskComponent = {
         task: () => ({ id: 'focused-task-1' }),
