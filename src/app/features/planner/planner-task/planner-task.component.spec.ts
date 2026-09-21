@@ -25,6 +25,7 @@ import {
 } from '../../work-context/store/work-context-meta.actions';
 import { WorkContextType } from '../../work-context/work-context.model';
 import { TODAY_TAG } from '../../tag/tag.const';
+import { TagService } from '../../tag/tag.service';
 
 const makeTask = (overrides: Partial<TaskCopy> = {}): TaskCopy =>
   ({
@@ -118,6 +119,10 @@ describe('PlannerTaskComponent', () => {
         },
         { provide: MatDialog, useValue: matDialogMock },
         { provide: Store, useValue: storeMock },
+        {
+          provide: TagService,
+          useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
         {
           provide: DateService,
           useValue: {

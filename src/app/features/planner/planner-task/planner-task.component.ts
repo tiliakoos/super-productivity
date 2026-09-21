@@ -58,7 +58,8 @@ import {
   moveTaskUpInTodayList,
 } from '../../work-context/store/work-context-meta.actions';
 import { WorkContextType } from '../../work-context/work-context.model';
-import { TODAY_TAG } from '../../tag/tag.const';
+import { IN_PROGRESS_TAG, TODAY_TAG } from '../../tag/tag.const';
+import { TagService } from '../../tag/tag.service';
 
 @Component({
   selector: 'planner-task',
@@ -106,6 +107,7 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
   private _store = inject(Store);
   private _dateService = inject(DateService);
   private _dateAdapter = inject(DateAdapter);
+  private _tagService = inject(TagService);
   private _isTaskDeleteTriggered = false;
   private _isDestroyed = false;
   private _completionFocusFallback?: {
@@ -423,6 +425,8 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
       this._moveFocus('ArrowDown');
     } else if (checkKeyCombo(keyboardEvent, keys.taskToggleDone)) {
       this._runCompletionWithFocus();
+    } else if (checkKeyCombo(keyboardEvent, keys.taskToggleInProgress)) {
+      this.toggleInProgress();
     } else if (
       checkKeyCombo(keyboardEvent, keys.togglePlay) &&
       this._configService.appFeatures().isTimeTrackingEnabled
@@ -467,6 +471,17 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     event.preventDefault();
+  }
+
+  toggleInProgress(): void {
+    const t = this.task();
+    this._tagService.ensureInProgressTag();
+    this._taskService.updateTags(
+      t,
+      t.tagIds.includes(IN_PROGRESS_TAG.id)
+        ? t.tagIds.filter((id) => id !== IN_PROGRESS_TAG.id)
+        : [...t.tagIds, IN_PROGRESS_TAG.id],
+    );
   }
 
   private _scheduleForOffset(offset: 'tomorrow' | 'nextWeek' | 'nextMonth'): void {

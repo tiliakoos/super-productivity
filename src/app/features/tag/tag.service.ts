@@ -17,7 +17,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { Tag, TagState } from './tag.model';
 import { nanoid } from 'nanoid';
-import { DEFAULT_TAG } from './tag.const';
+import { DEFAULT_TAG, IN_PROGRESS_TAG } from './tag.const';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { sortByTitle } from '../../util/sort-by-title';
 import { getRandomWorkContextColor } from '../../ui/work-context-color';
@@ -66,6 +66,16 @@ export class TagService {
     const { id, action } = this.getAddTagActionAndId(tag);
     this._store$.dispatch(action);
     return id;
+  }
+
+  /**
+   * The Kanban in-progress tag is created lazily by the Boards view, so a task
+   * can only be tagged with it once it exists in state.
+   */
+  ensureInProgressTag(): void {
+    if (!this.tags().some((tag) => tag.id === IN_PROGRESS_TAG.id)) {
+      this._store$.dispatch(addTag({ tag: IN_PROGRESS_TAG }));
+    }
   }
 
   deleteTag(id: string): void {

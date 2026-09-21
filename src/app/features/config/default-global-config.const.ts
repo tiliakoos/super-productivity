@@ -173,6 +173,7 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
     taskScheduleDeadline: 'Shift+S',
     taskUnschedule: 'U',
     taskToggleDone: 'D',
+    taskToggleInProgress: 'R',
     taskAddSubTask: 'A',
     taskDuplicate: 'Ctrl+D',
     taskAddAttachment: 'L',

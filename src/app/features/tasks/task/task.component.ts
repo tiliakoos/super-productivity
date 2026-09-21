@@ -109,7 +109,8 @@ import { TagToggleMenuListComponent } from '../../tag/tag-toggle-menu-list/tag-t
 import { Store } from '@ngrx/store';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import { environment } from '../../../../environments/environment';
-import { TODAY_TAG } from '../../tag/tag.const';
+import { IN_PROGRESS_TAG, TODAY_TAG } from '../../tag/tag.const';
+import { TagService } from '../../tag/tag.service';
 import { GlobalTrackingIntervalService } from '../../../core/global-tracking-interval/global-tracking-interval.service';
 import { LayoutService } from '../../../core-ui/layout/layout.service';
 import { TaskFocusService } from '../task-focus.service';
@@ -205,6 +206,7 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
   private readonly _addSubtaskInputService = inject(AddSubtaskInputService);
   private readonly _multiSelect = inject(TaskMultiSelectService);
   private readonly _taskMoveToProjectService = inject(TaskMoveToProjectService);
+  private readonly _tagService = inject(TagService);
 
   readonly workContextService = inject(WorkContextService);
   readonly layoutService = inject(LayoutService);
@@ -1440,6 +1442,16 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
 
   onTagsUpdated(tagIds: string[]): void {
     this._taskService.updateTags(this.task(), tagIds);
+  }
+
+  toggleInProgress(): void {
+    const t = this.task();
+    this._tagService.ensureInProgressTag();
+    this.onTagsUpdated(
+      t.tagIds.includes(IN_PROGRESS_TAG.id)
+        ? t.tagIds.filter((id) => id !== IN_PROGRESS_TAG.id)
+        : [...t.tagIds, IN_PROGRESS_TAG.id],
+    );
   }
 
   moveTaskToProject(projectId: string): void {

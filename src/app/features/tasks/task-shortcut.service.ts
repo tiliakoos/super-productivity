@@ -240,6 +240,11 @@ export class TaskShortcutService {
       ev.preventDefault();
       return true;
     }
+    if (checkKeyCombo(ev, keys.taskToggleInProgress)) {
+      this._handleTaskShortcut(focusedTaskId, 'toggleInProgress');
+      ev.preventDefault();
+      return true;
+    }
     if (checkKeyCombo(ev, keys.taskAddSubTask)) {
       this._handleTaskShortcut(focusedTaskId, 'addSubTask');
       ev.preventDefault();

@@ -176,6 +176,24 @@
     </button>
   }
 
+  @if (!task.isDone) {
+    <button
+      (click)="toggleInProgress()"
+      mat-menu-item
+    >
+      <span class="menuItemLeft">
+        <mat-icon>play_circle</mat-icon>
+        {{
+          (task.tagIds.includes(IN_PROGRESS_TAG_ID)
+            ? T.F.TASK.CMP.MARK_NOT_IN_PROGRESS
+            : T.F.TASK.CMP.MARK_IN_PROGRESS
+          ) | translate
+        }}
+      </span>
+      <span class="key-i">{{ kb.taskToggleInProgress }}</span>
+    </button>
+  }
+
   @if (isAdvancedControls() && !task.isDone && (!task.parentId || isInSubTaskList)) {
     <button
       (click)="moveToTop()"

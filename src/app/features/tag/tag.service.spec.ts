@@ -3,7 +3,7 @@ import { TagService } from './tag.service';
 import { MockStore, provideMockStore } from '@ngrx/store/testing';
 import { Store } from '@ngrx/store';
 import { Tag, TagState } from './tag.model';
-import { DEFAULT_TAG } from './tag.const';
+import { DEFAULT_TAG, IN_PROGRESS_TAG } from './tag.const';
 import { deleteTag, deleteTags, updateTag, updateTagOrder } from './store/tag.actions';
 import {
   selectAllTags,
@@ -220,6 +220,36 @@ describe('TagService', () => {
         tag: Tag;
       };
       expect(action.tag.id).toBe(id);
+    });
+  });
+
+  describe('ensureInProgressTag', () => {
+    it('should add the built-in in-progress tag when it is missing', () => {
+      const dispatchSpy = spyOn(store, 'dispatch');
+
+      service.ensureInProgressTag();
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(1);
+      const action = dispatchSpy.calls.mostRecent().args[0] as unknown as {
+        type: string;
+        tag: Tag;
+      };
+      expect(action.type).toBe('[Tag] Add Tag');
+      expect(action.tag.id).toBe(IN_PROGRESS_TAG.id);
+    });
+
+    it('should do nothing when the tag already exists', () => {
+      store.overrideSelector(selectAllTags, [
+        initialState.tags.entities['tag-1']!,
+        IN_PROGRESS_TAG,
+      ]);
+      store.refreshState();
+      TestBed.flushEffects();
+      const dispatchSpy = spyOn(store, 'dispatch');
+
+      service.ensureInProgressTag();
+
+      expect(dispatchSpy).not.toHaveBeenCalled();
     });
   });
 

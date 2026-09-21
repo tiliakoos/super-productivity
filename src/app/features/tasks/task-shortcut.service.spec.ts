@@ -47,6 +47,7 @@ describe('TaskShortcutService', () => {
     taskSchedule: 'S',
     taskScheduleDeadline: 'Shift+S',
     taskToggleDone: 'D',
+    taskToggleInProgress: 'R',
     taskAddSubTask: 'A',
     taskDuplicate: 'Ctrl+D',
     taskAddAttachment: null,
@@ -438,6 +439,23 @@ describe('TaskShortcutService', () => {
       expect(result).toBe(true);
       expect(mockTaskComponent.toggleDoneKeyboard).toHaveBeenCalledTimes(1);
       expect(mockTaskComponent.duplicateTask).not.toHaveBeenCalled();
+    });
+
+    it('should bind R to toggling the in-progress tag', () => {
+      const mockTaskComponent = {
+        task: () => ({ id: 'focused-task-1' }),
+        toggleInProgress: jasmine.createSpy('toggleInProgress'),
+        toggleDoneKeyboard: jasmine.createSpy('toggleDoneKeyboard'),
+        taskContextMenu: () => undefined,
+      };
+      setFocusedTask('focused-task-1');
+      mockTaskFocusService.lastFocusedTaskComponent.set(mockTaskComponent);
+
+      const result = service.handleTaskShortcuts(createKeyboardEvent('R'));
+
+      expect(result).toBe(true);
+      expect(mockTaskComponent.toggleInProgress).toHaveBeenCalledTimes(1);
+      expect(mockTaskComponent.toggleDoneKeyboard).not.toHaveBeenCalled();
     });
 
     it('should delegate taskScheduleDeadline shortcut to focused task component', () => {

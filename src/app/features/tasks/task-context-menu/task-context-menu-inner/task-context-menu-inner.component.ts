@@ -66,6 +66,7 @@ import { IssueIconPipe } from '../../../issue/issue-icon/issue-icon.pipe';
 import { showFocusOverlay } from '../../../focus-mode/store/focus-mode.actions';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TagService } from '../../../tag/tag.service';
+import { IN_PROGRESS_TAG } from '../../../tag/tag.const';
 import { DialogPromptComponent } from '../../../../ui/dialog-prompt/dialog-prompt.component';
 import { TaskSharedActions } from '../../../../root-store/meta/task-shared.actions';
 import { selectTodayTaskIds } from '../../../work-context/store/work-context.selectors';
@@ -575,6 +576,13 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
 
   onTagsUpdated(tagIds: string[]): void {
     this._taskService.updateTags(this.task, tagIds);
+  }
+
+  readonly IN_PROGRESS_TAG_ID = IN_PROGRESS_TAG.id;
+
+  toggleInProgress(): void {
+    this._tagService.ensureInProgressTag();
+    this.toggleTag(IN_PROGRESS_TAG.id);
   }
 
   toggleTag(tagId: string): void {
