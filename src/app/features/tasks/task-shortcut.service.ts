@@ -1,7 +1,7 @@
 import { computed, inject, Injectable } from '@angular/core';
-import { orderRankFromKey } from './task-order.util';
 import { TaskFocusService } from './task-focus.service';
 import { TaskService } from './task.service';
+import { orderRankFromKey } from './task-order.util';
 import { GlobalConfigService } from '../config/global-config.service';
 import { checkKeyCombo } from '../../util/check-key-combo';
 import { Log } from '../../core/log';

@@ -69,17 +69,17 @@ export const orderKeyForRank = (
   sortedKeysOfOthers: readonly number[],
   rank: number,
 ): number => {
-  const last = sortedKeysOfOthers.length - 1;
-  if (last < 0) {
+  const keys = sortedKeysOfOthers;
+  if (keys.length === 0) {
     return 1;
   }
   if (rank <= 1) {
-    return sortedKeysOfOthers[0] - 1;
+    return keys[0] - 1;
   }
-  if (rank > last + 1) {
-    return sortedKeysOfOthers[last] + 1;
+  if (rank > keys.length) {
+    return keys[keys.length - 1] + 1;
   }
-  return (sortedKeysOfOthers[rank - 2] + sortedKeysOfOthers[rank - 1]) / 2;
+  return (keys[rank - 2] + keys[rank - 1]) / 2;
 };
 
 /**

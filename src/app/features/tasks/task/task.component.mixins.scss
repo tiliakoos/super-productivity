@@ -40,3 +40,20 @@
     transform: scale(1.2);
   }
 }
+
+// Day-order badge: the task's rank among its day's ordered, undone tasks.
+// Shared by the task row and the planner card.
+@mixin orderBadge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}

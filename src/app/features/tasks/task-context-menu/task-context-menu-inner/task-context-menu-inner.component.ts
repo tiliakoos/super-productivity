@@ -182,6 +182,8 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
   toggleTagList = this._tagService.tagsNoMyDayAndNoListInTreeOrder;
   projectFolderMap = computed(() => this._menuTreeService.projectFolderMap());
   tagFolderMap = computed(() => this._menuTreeService.tagFolderMap());
+  readonly IN_PROGRESS_TAG_ID = IN_PROGRESS_TAG.id;
+  readonly ORDER_RANKS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   isShowMoveFromAndToBacklogBtns$: Observable<boolean> =
     this._workContextService.activeWorkContext$.pipe(
@@ -579,9 +581,6 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
   onTagsUpdated(tagIds: string[]): void {
     this._taskService.updateTags(this.task, tagIds);
   }
-
-  readonly IN_PROGRESS_TAG_ID = IN_PROGRESS_TAG.id;
-  readonly ORDER_RANKS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   get orderRank(): number | undefined {
     return this._taskOrder.index().rankById[this.task.id];
