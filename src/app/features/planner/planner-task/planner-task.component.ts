@@ -423,8 +423,12 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!keys) {
       return;
     }
+    // Bare digits win before any configured combo, the same precedence the
+    // task row's shortcut service applies.
     const orderRank = orderRankFromKey(keyboardEvent);
-    if (checkKeyCombo(keyboardEvent, keys.selectPreviousTask)) {
+    if (orderRank !== undefined) {
+      this.setOrderRank(orderRank);
+    } else if (checkKeyCombo(keyboardEvent, keys.selectPreviousTask)) {
       this._moveFocus('ArrowUp');
     } else if (checkKeyCombo(keyboardEvent, keys.selectNextTask)) {
       this._moveFocus('ArrowDown');
@@ -432,8 +436,6 @@ export class PlannerTaskComponent implements OnInit, OnDestroy, AfterViewInit {
       this._runCompletionWithFocus();
     } else if (checkKeyCombo(keyboardEvent, keys.taskToggleInProgress)) {
       this.toggleInProgress();
-    } else if (orderRank !== undefined) {
-      this.setOrderRank(orderRank);
     } else if (
       checkKeyCombo(keyboardEvent, keys.togglePlay) &&
       this._configService.appFeatures().isTimeTrackingEnabled
