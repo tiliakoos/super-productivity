@@ -12,6 +12,9 @@ import {
   TranslateNoOpLoader,
 } from '@ngx-translate/core';
 import { provideMockStore } from '@ngrx/store/testing';
+import { TagService } from '../../tag/tag.service';
+import { TaskOrderService } from '../../tasks/task-order.service';
+import { EMPTY_TASK_ORDER_INDEX } from '../../tasks/task-order.util';
 import { provideMockActions } from '@ngrx/effects/testing';
 import { PlannerTaskComponent } from '../../planner/planner-task/planner-task.component';
 import { AddTaskInlineComponent } from '../../planner/add-task-inline/add-task-inline.component';
@@ -132,6 +135,14 @@ describe('BoardPanelComponent - Backlog Feature', () => {
         provideMockStore({}),
         provideMockActions(() => actions$),
         { provide: Store, useValue: storeMock },
+        {
+          provide: TagService,
+          useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
+        {
+          provide: TaskOrderService,
+          useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
+        },
         { provide: TaskService, useValue: { currentTaskId: signal(null) } },
         { provide: MatDialog, useValue: {} },
         { provide: WorkContextService, useValue: workContextServiceMock },
@@ -292,6 +303,14 @@ describe('BoardPanelComponent - Hidden Project Backlog', () => {
         provideMockStore({}),
         provideMockActions(() => actions$),
         { provide: Store, useValue: storeMock },
+        {
+          provide: TagService,
+          useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
+        {
+          provide: TaskOrderService,
+          useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
+        },
         { provide: TaskService, useValue: { currentTaskId: signal(null) } },
         { provide: MatDialog, useValue: {} },
         { provide: WorkContextService, useValue: {} },
@@ -385,6 +404,14 @@ describe('BoardPanelComponent - Tag match mode, sort, inline-create computeds', 
         provideMockStore({}),
         provideMockActions(() => actions$),
         { provide: Store, useValue: storeMock },
+        {
+          provide: TagService,
+          useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
+        {
+          provide: TaskOrderService,
+          useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
+        },
         { provide: TaskService, useValue: { currentTaskId: signal(null) } },
         { provide: MatDialog, useValue: {} },
         { provide: WorkContextService, useValue: {} },
@@ -803,6 +830,14 @@ describe('BoardPanelComponent - drop()', () => {
         provideMockStore({}),
         provideMockActions(() => actions$),
         { provide: Store, useValue: storeMock },
+        {
+          provide: TagService,
+          useValue: jasmine.createSpyObj('TagService', ['ensureInProgressTag']),
+        },
+        {
+          provide: TaskOrderService,
+          useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
+        },
         {
           provide: TaskService,
           useValue: {
