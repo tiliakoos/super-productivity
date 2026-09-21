@@ -1,8 +1,14 @@
 import { DEFAULT_TASK, Task } from '../../features/tasks/task.model';
 import { selectAllTasksInActiveProjects } from '../../features/tasks/store/task.selectors';
 import { selectWeekDays } from './week-page.selectors';
+import { PlannerState } from '../../features/planner/store/planner.reducer';
 
 describe('selectWeekDays', () => {
+  const emptyPlanner: PlannerState = {
+    days: {},
+    addPlannedTasksDialogLastShown: undefined,
+  };
+
   it('builds the seven-day logical window and groups each active task once', () => {
     const today = '2026-03-08';
     const offsetMs = 4 * 60 * 60 * 1000;
@@ -38,7 +44,13 @@ describe('selectWeekDays', () => {
       new Set(['archived-project']),
     );
 
-    const result = selectWeekDays.projector(activeTasks, today, offsetMs);
+    const result = selectWeekDays.projector(
+      activeTasks,
+      today,
+      offsetMs,
+      [],
+      emptyPlanner,
+    );
 
     expect(result.map((day) => day.day)).toEqual([
       '2026-03-08',
@@ -62,5 +74,33 @@ describe('selectWeekDays', () => {
     expect(result.every((day) => !day.tasks.some((t) => t.id === 'out-of-window'))).toBe(
       true,
     );
+  });
+  it('orders today by the Today list and other days by their planner day', () => {
+    const today = '2026-03-08';
+    const tomorrow = '2026-03-09';
+    const task = (id: string, dueDay: string): Task => ({
+      ...DEFAULT_TASK,
+      id,
+      projectId: 'active-project',
+      dueDay,
+    });
+    const activeTasks = selectAllTasksInActiveProjects.projector(
+      [
+        task('a', today),
+        task('b', today),
+        task('c', today),
+        task('x', tomorrow),
+        task('y', tomorrow),
+      ],
+      new Set(),
+    );
+
+    const result = selectWeekDays.projector(activeTasks, today, 0, ['c', 'a'], {
+      ...emptyPlanner,
+      days: { [tomorrow]: ['y', 'x'] },
+    });
+
+    expect(result[0].tasks.map((t) => t.id)).toEqual(['c', 'a', 'b']);
+    expect(result[1].tasks.map((t) => t.id)).toEqual(['y', 'x']);
   });
 });
