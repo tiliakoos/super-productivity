@@ -20,7 +20,6 @@ export enum SORT_OPTION_TYPE {
   timeSpent = 'timeSpent',
   tag = 'tag',
   priority = 'priority',
-  dayOrder = 'dayOrder',
 }
 
 export enum SORT_ORDER {
@@ -150,11 +149,6 @@ const sortOptions: SortOption[] = [
     type: SORT_OPTION_TYPE.priority,
     order: SORT_ORDER.ASC,
     label: T.F.TASK_VIEW.CUSTOMIZER.SORT_PRIORITY,
-  },
-  {
-    type: SORT_OPTION_TYPE.dayOrder,
-    order: SORT_ORDER.ASC,
-    label: T.F.TASK_VIEW.CUSTOMIZER.SORT_DAY_ORDER,
   },
 ];
 

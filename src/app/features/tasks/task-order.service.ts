@@ -29,6 +29,9 @@ export class TaskOrderService {
 
   /** Put `task` at `rank` (1-based) among its day's ordered tasks, or clear it with `null`. */
   setRank(task: Task, rank: number | null): void {
+    if (task.parentId) {
+      return;
+    }
     if (rank === null) {
       if (typeof task.orderKey === 'number') {
         this._taskService.update(task.id, { orderKey: null });
@@ -52,5 +55,25 @@ export class TaskOrderService {
         targetRank,
       ),
     });
+  }
+
+  /**
+   * After a drag: a ranked task takes the place of the next ranked task below it
+   * in `orderedIds`, or the last place. `orderedIds` may be a partial view of the
+   * day (the planner column omits timed tasks), so the rank comes from the day's
+   * full keyed list.
+   */
+  setRankFromPosition(task: Task, orderedIds: readonly string[]): void {
+    const { rankById, keyedByDay } = this.index();
+    const day = getTaskPlannedDay(task, this._dateService.getStartOfNextDayDiffMs());
+    if (rankById[task.id] === undefined || !day) {
+      return;
+    }
+    const siblings = (keyedByDay[day] ?? []).filter((e) => e.id !== task.id);
+    const nextRankedId = orderedIds
+      .slice(orderedIds.indexOf(task.id) + 1)
+      .find((id) => rankById[id] !== undefined);
+    const nextIndex = siblings.findIndex((e) => e.id === nextRankedId);
+    this.setRank(task, nextIndex === -1 ? siblings.length + 1 : nextIndex + 1);
   }
 }

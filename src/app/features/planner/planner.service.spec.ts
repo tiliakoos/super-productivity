@@ -8,7 +8,9 @@ import { GlobalTrackingIntervalService } from '../../core/global-tracking-interv
 import {
   selectAllTasksWithDueTime,
   selectMapOfAllTasksInActiveProjects,
+  selectTaskOrderIndex,
 } from '../tasks/store/task.selectors';
+import { EMPTY_TASK_ORDER_INDEX } from '../tasks/task-order.util';
 import { selectActiveTaskRepeatCfgs } from '../task-repeat-cfg/store/task-repeat-cfg.selectors';
 import { selectTodayTaskIds } from '../work-context/store/work-context.selectors';
 import { PlannerDay } from './planner.model';
@@ -546,6 +548,7 @@ describe('PlannerService', () => {
         days: { [dayStr]: ['out-of-window-task'] },
         addPlannedTasksDialogLastShown: undefined,
       });
+      store.overrideSelector(selectTaskOrderIndex, EMPTY_TASK_ORDER_INDEX);
       store.refreshState();
 
       await expectAsync(service.getSnackExtraStr(dayStr)).toBeResolvedTo(' – ∑ 1');

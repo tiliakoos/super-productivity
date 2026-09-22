@@ -4,6 +4,7 @@ import { getDbDateStr } from '../../util/get-db-date-str';
 export interface TaskOrderSource {
   readonly id: string;
   readonly isDone: boolean;
+  readonly parentId?: string | null;
   readonly dueDay?: string | null;
   readonly dueWithTime?: number | null;
   readonly orderKey?: number | null;
@@ -15,7 +16,7 @@ export interface TaskOrderEntry {
 }
 
 export interface TaskOrderIndex {
-  /** 1-based rank of every undone, keyed task among the keyed tasks of its day. */
+  /** 1-based rank of every undone, top-level keyed task among the keyed tasks of its day. */
   readonly rankById: Record<string, number>;
   /** The same tasks per planned day, sorted by key; what a new key is computed against. */
   readonly keyedByDay: Record<string, TaskOrderEntry[]>;
@@ -41,7 +42,7 @@ export const buildTaskOrderIndex = (
 ): TaskOrderIndex => {
   const keyedByDay: Record<string, TaskOrderEntry[]> = {};
   for (const task of tasks) {
-    if (task.isDone || typeof task.orderKey !== 'number') {
+    if (task.isDone || task.parentId || typeof task.orderKey !== 'number') {
       continue;
     }
     const day = getTaskPlannedDay(task, startOfNextDayDiffMs);
@@ -60,6 +61,15 @@ export const buildTaskOrderIndex = (
   }
   return { rankById, keyedByDay };
 };
+
+/**
+ * Comparator for one day's list: ranked tasks first, by rank; everything else
+ * keeps its place (relies on the sort being stable).
+ */
+export const compareByDayRank =
+  (rankById: Record<string, number>) =>
+  (a: string, b: string): number =>
+    (rankById[a] ?? Infinity) - (rankById[b] ?? Infinity) || 0;
 
 /**
  * A key that lands a task at `rank` among `sortedKeysOfOthers` without touching

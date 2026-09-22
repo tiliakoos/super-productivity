@@ -12,6 +12,7 @@ import {
 } from './work-context.selectors';
 import { WorkContext, WorkContextType } from '../work-context.model';
 import { TaskCopy } from '../../tasks/task.model';
+import { EMPTY_TASK_ORDER_INDEX } from '../../tasks/task-order.util';
 import { getDbDateStr } from '../../../util/get-db-date-str';
 /**
  * Tests for work-context selectors.
@@ -449,6 +450,31 @@ describe('workContext selectors', () => {
   });
 
   describe('selectTodayTaskIds (virtual tag pattern - uses dueDay)', () => {
+    it('should place ranked tasks first by rank and keep the stored order for the rest', () => {
+      const tasks = ['u1', 'r2', 'u2', 'r1'].map((id) => ({
+        id,
+        tagIds: [],
+        dueDay: todayStr,
+        subTaskIds: [],
+      }));
+      const tagState = fakeEntityStateFromArray([
+        { ...TODAY_TAG, taskIds: ['u1', 'r2', 'u2', 'r1'] },
+      ]);
+      const taskState = fakeEntityStateFromArray(tasks) as any;
+
+      const result = selectTodayTaskIds.projector(
+        tagState,
+        taskState.entities,
+        todayStr,
+        0,
+        {
+          rankById: { r1: 1, r2: 2 },
+          keyedByDay: {},
+        },
+      );
+      expect(result).toEqual(['r1', 'r2', 'u1', 'u2']);
+    });
+
     it('should return empty array when no tasks have dueDay === today', () => {
       const tagState = fakeEntityStateFromArray([TODAY_TAG]);
       const taskState = fakeEntityStateFromArray([]) as any;
@@ -458,6 +484,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual([]);
     });
@@ -490,6 +517,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1', 'task2']);
     });
@@ -521,6 +549,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1']);
     });
@@ -552,6 +581,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1', 'task2']);
     });
@@ -584,6 +614,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['parent']); // subtask excluded - shown nested under parent
     });
@@ -616,6 +647,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['subtask1']); // subtask included as top-level item
     });
@@ -642,6 +674,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1']); // deleted tasks filtered out
     });
@@ -673,6 +706,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['active-task']); // archived task ID filtered out
     });
@@ -705,6 +739,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1']); // Should be included via dueWithTime fallback
     });
@@ -737,6 +772,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1']); // dueWithTime takes priority - task IS in today
     });
@@ -769,6 +805,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual([]); // Should NOT be included
     });
@@ -801,6 +838,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1']); // Should be included via dueWithTime (no duplicates)
     });
@@ -842,6 +880,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(['task1', 'task2']); // Both included, task2 appended
     });
@@ -879,6 +918,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       // dueWithTime takes priority - task IS in today (despite stale dueDay)
       expect(result).toEqual(['task1']);
@@ -918,6 +958,7 @@ describe('workContext selectors', () => {
         taskState.entities,
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       // Task should NOT appear in today (dueWithTime is for tomorrow)
       expect(result).toEqual([]);
@@ -949,6 +990,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         expect(result).toEqual(['task1']);
       });
@@ -974,6 +1016,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         expect(result).toEqual([]);
       });
@@ -999,6 +1042,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         expect(result).toEqual([]);
       });
@@ -1025,6 +1069,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         expect(result).toEqual([]);
       });
@@ -1051,6 +1096,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         expect(result).toEqual(['task1']);
       });
@@ -1073,6 +1119,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         expect(result).toEqual(['task1']);
       });
@@ -1122,6 +1169,7 @@ describe('workContext selectors', () => {
           taskState.entities,
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
         // task-offset-out excluded, the other two included in stored order
         expect(result).toEqual(['task-dueday', 'task-offset-ok']);

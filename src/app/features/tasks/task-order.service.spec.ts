@@ -78,6 +78,32 @@ describe('TaskOrderService', () => {
     expect(update).toHaveBeenCalledOnceWith('c', { orderKey: 9 });
   });
 
+  it('ignores a sub task', () => {
+    service.setRank(task('sub', { parentId: 'a' }), 1);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('re-ranks a dragged task to sit above the next ranked task below it', () => {
+    service.setRankFromPosition(task('c', { orderKey: 30 }), ['a', 'x', 'c', 'b', 'y']);
+    expect(update).toHaveBeenCalledOnceWith('c', { orderKey: 15 });
+  });
+
+  it('counts ranked tasks the dragged list does not show', () => {
+    // 'a' is ranked but absent (a timed task in a planner column): c still lands between a and b
+    service.setRankFromPosition(task('c', { orderKey: 30 }), ['x', 'c', 'b']);
+    expect(update).toHaveBeenCalledOnceWith('c', { orderKey: 15 });
+  });
+
+  it('puts a task dragged below every ranked task last', () => {
+    service.setRankFromPosition(task('a', { orderKey: 10 }), ['b', 'c', 'x', 'a']);
+    expect(update).toHaveBeenCalledOnceWith('a', { orderKey: 31 });
+  });
+
+  it('leaves an unranked dragged task alone', () => {
+    service.setRankFromPosition(task('x'), ['x', 'a', 'b', 'c']);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('ignores a task with no planned day', () => {
     service.setRank(task('nowhere', { dueDay: null }), 1);
     expect(update).not.toHaveBeenCalled();

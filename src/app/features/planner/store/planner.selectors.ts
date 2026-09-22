@@ -3,7 +3,9 @@ import * as fromPlanner from './planner.reducer';
 import {
   selectMapOfAllTasksInActiveProjects,
   selectAllTasksInActiveProjects,
+  selectTaskOrderIndex,
 } from '../../tasks/store/task.selectors';
+import { compareByDayRank } from '../../tasks/task-order.util';
 import {
   NoStartTimeRepeatProjection,
   PlannerDay,
@@ -112,7 +114,14 @@ export const selectPlannerDays = (
     selectPlannerState,
     selectTimelineConfig,
     selectStartOfNextDayDiffMs,
-    (activeTasks, plannerState, scheduleConfig, startOfNextDayDiffMs): PlannerDay[] => {
+    selectTaskOrderIndex,
+    (
+      activeTasks,
+      plannerState,
+      scheduleConfig,
+      startOfNextDayDiffMs,
+      orderIndex,
+    ): PlannerDay[] => {
       // Pre-compute deadline tasks grouped by day (O(N) once, then O(1) per day)
       const deadlineMap = groupDeadlineTasksByDay(
         activeTasks.values(),
@@ -132,6 +141,7 @@ export const selectPlannerDays = (
           deadlineMap,
           scheduleConfig,
           startOfNextDayDiffMs,
+          orderIndex.rankById,
         ),
       );
     },
@@ -165,6 +175,7 @@ const getPlannerDay = (
   deadlineTasksByDay: Record<string, TaskCopy[]>,
   scheduleConfig?: ScheduleConfig,
   startOfNextDayDiffMs: number = 0,
+  rankById: Record<string, number> = {},
 ): PlannerDay => {
   const isTodayI = dayDate === todayStr;
   const currentDayDate = dateStrToUtcDate(dayDate);
@@ -173,7 +184,8 @@ const getPlannerDay = (
     isTodayI && unplannedTaskIdsToday
       ? unplannedTaskIdsToday
       : plannerState.days[dayDate] || [];
-  const normalTasks = tIds
+  const normalTasks = [...tIds]
+    .sort(compareByDayRank(rankById))
     .map((id) => taskMap.get(id) as TaskCopy)
     .filter((t) => !!t)
     // Filter out tasks with dueDay in future if it is Today's column

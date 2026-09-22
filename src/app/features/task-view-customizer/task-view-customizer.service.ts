@@ -112,7 +112,7 @@ export class TaskViewCustomizerService {
       .subscribe(({ activeId, activeType }) => {
         this._currentContextKey = `${activeType}:${activeId}`;
         const stored = this._stateByContext[this._currentContextKey];
-        this.selectedSort.set(stored?.sort ?? DEFAULT_OPTIONS.sort);
+        this.selectedSort.set(this._sanitizeSort(stored?.sort));
         this.selectedGroup.set(this._sanitizeGroupForContext(stored?.group, activeType));
         this.selectedFilter.set(this._sanitizeFilter(stored?.filter));
         this.collapsedGroupIds.set(stored?.collapsedGroupIds ?? []);
@@ -181,6 +181,13 @@ export class TaskViewCustomizerService {
       return DEFAULT_OPTIONS.group;
     }
     return stored;
+  }
+
+  // A stored sort type that no longer exists (a removed option) falls back to default.
+  private _sanitizeSort(stored: SortOption | undefined): SortOption {
+    return stored && OPTIONS.sort.list.some((option) => option.type === stored.type)
+      ? stored
+      : DEFAULT_OPTIONS.sort;
   }
 
   // Unlike _sanitizeGroupForContext (which passes the stored value through),
@@ -380,18 +387,6 @@ export class TaskViewCustomizerService {
         return tasksCopy.sort(
           (a, b) => (getPriorityRank(a.priority) - getPriorityRank(b.priority)) * factor,
         );
-      }
-
-      case SORT_OPTION_TYPE.dayOrder: {
-        // Raw keys, so only meaningful within one day's list (Today); unkeyed
-        // and done tasks sort last and keep their relative order.
-        const getOrderKey = (t: TaskWithSubTasks): number =>
-          !t.isDone && typeof t.orderKey === 'number' ? t.orderKey : Infinity;
-        return tasksCopy.sort((a, b) => {
-          const ka = getOrderKey(a);
-          const kb = getOrderKey(b);
-          return ka === kb ? 0 : (ka - kb) * factor;
-        });
       }
 
       case SORT_OPTION_TYPE.creationDate:

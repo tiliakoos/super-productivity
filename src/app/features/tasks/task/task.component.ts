@@ -825,15 +825,35 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
   }
 
   moveTaskUp(): void {
+    if (this._moveRankInToday(-1)) {
+      return;
+    }
     this._moveAndRefocus((id, parentId, isBacklog) =>
       this._taskService.moveUp(id, parentId, isBacklog),
     );
   }
 
   moveTaskDown(): void {
+    if (this._moveRankInToday(1)) {
+      return;
+    }
     this._moveAndRefocus((id, parentId, isBacklog) =>
       this._taskService.moveDown(id, parentId, isBacklog),
     );
+  }
+
+  // The Today list places ranked tasks by rank, so moving one there means re-ranking it.
+  private _moveRankInToday(delta: 1 | -1): boolean {
+    const rank = this.orderRank();
+    if (
+      rank === undefined ||
+      this.workContextService.activeWorkContextId !== TODAY_TAG.id
+    ) {
+      return false;
+    }
+    this._taskOrder.setRank(this.task(), Math.max(1, rank + delta));
+    setTimeout(() => this.focusSelf(), 10);
+    return true;
   }
 
   moveTaskToTop(): void {

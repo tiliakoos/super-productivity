@@ -1,5 +1,6 @@
 import {
   buildTaskOrderIndex,
+  compareByDayRank,
   getTaskPlannedDay,
   orderKeyForRank,
   orderRankFromKey,
@@ -30,7 +31,7 @@ describe('task-order.util', () => {
   });
 
   describe('buildTaskOrderIndex', () => {
-    it('ranks undone keyed tasks per day and skips done, unkeyed and dayless tasks', () => {
+    it('ranks undone keyed top-level tasks per day and skips done, unkeyed, dayless and sub tasks', () => {
       const index = buildTaskOrderIndex(
         [
           src('c', { dueDay: '2026-03-08', orderKey: 30 }),
@@ -38,6 +39,7 @@ describe('task-order.util', () => {
           src('done', { dueDay: '2026-03-08', orderKey: 5, isDone: true }),
           src('unkeyed', { dueDay: '2026-03-08' }),
           src('dayless', { orderKey: 1 }),
+          src('sub', { dueDay: '2026-03-08', orderKey: 1, parentId: 'a' }),
           src('b', { dueDay: '2026-03-09', orderKey: 20 }),
         ],
         0,
@@ -57,6 +59,19 @@ describe('task-order.util', () => {
         0,
       );
       expect(index.rankById).toEqual({ y: 1, z: 2 });
+    });
+  });
+
+  describe('compareByDayRank', () => {
+    it('puts ranked ids first by rank and leaves the rest in place', () => {
+      const ids = ['u1', 'r2', 'u2', 'r1', 'u3'];
+      expect(ids.sort(compareByDayRank({ r1: 1, r2: 2 }))).toEqual([
+        'r1',
+        'r2',
+        'u1',
+        'u2',
+        'u3',
+      ]);
     });
   });
 

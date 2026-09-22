@@ -6,6 +6,7 @@ import {
   DEFAULT_TASK_REPEAT_CFG,
   TaskRepeatCfg,
 } from '../../task-repeat-cfg/task-repeat-cfg.model';
+import { EMPTY_TASK_ORDER_INDEX } from '../../tasks/task-order.util';
 
 // Regression for #8220: a recurring task that already has an instance in a day
 // (created, and possibly marked done) was counted twice in the Planner: once as
@@ -89,6 +90,7 @@ describe('Planner Selectors - #8220 recurring done task double-count', () => {
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(0);
@@ -118,6 +120,7 @@ describe('Planner Selectors - #8220 recurring done task double-count', () => {
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(ONE_HOUR);
@@ -153,6 +156,7 @@ describe('Planner Selectors - #8220 recurring done task double-count', () => {
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(0);
@@ -169,6 +173,7 @@ describe('Planner Selectors - #8220 recurring done task double-count', () => {
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(ONE_HOUR);

@@ -8,13 +8,19 @@ import {
 } from '@angular/core';
 import { T } from '../../../t.const';
 import { PlannerDay, ScheduleItem, ScheduleItemType } from '../planner.model';
-import { CdkDrag, CdkDragDrop, CdkDropList } from '@angular/cdk/drag-drop';
+import {
+  CdkDrag,
+  CdkDragDrop,
+  CdkDropList,
+  moveItemInArray,
+} from '@angular/cdk/drag-drop';
 import { TaskCopy } from '../../tasks/task.model';
 import { PlannerActions } from '../store/planner.actions';
 import { millisecondsDiffToRemindOption } from '../../tasks/util/remind-option-to-milliseconds';
 import { Store } from '@ngrx/store';
 import { MatDialog } from '@angular/material/dialog';
 import { TaskService } from '../../tasks/task.service';
+import { TaskOrderService } from '../../tasks/task-order.service';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import { DateService } from '../../../core/date/date.service';
 import { DialogScheduleTaskComponent } from '../dialog-schedule-task/dialog-schedule-task.component';
@@ -65,6 +71,7 @@ export class PlannerDayComponent {
   private _store = inject(Store);
   private _matDialog = inject(MatDialog);
   private _taskService = inject(TaskService);
+  private _taskOrder = inject(TaskOrderService);
   private _dateService = inject(DateService);
   private _layoutService = inject(LayoutService);
   private _dateTimeFormatService = inject(DateTimeFormatService);
@@ -151,6 +158,9 @@ export class PlannerDayComponent {
             }),
           );
         }
+        const newOrderedIds = (allItems as TaskCopy[]).map((t) => t.id);
+        moveItemInArray(newOrderedIds, ev.previousIndex, ev.currentIndex);
+        this._taskOrder.setRankFromPosition(task, newOrderedIds);
       } else {
         this._store.dispatch(
           PlannerActions.transferTask({

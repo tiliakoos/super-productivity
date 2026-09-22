@@ -8,6 +8,7 @@ import {
   DEFAULT_TASK_REPEAT_CFG,
   TaskRepeatCfg,
 } from '../../task-repeat-cfg/task-repeat-cfg.model';
+import { EMPTY_TASK_ORDER_INDEX } from '../../tasks/task-order.util';
 
 // Regression for #8232: the dedup added in #8220/#8229 keyed only off
 // `normalTasks`, but a recurring task with `startTime` is created with
@@ -104,6 +105,7 @@ describe('Planner Selectors - #8232 timed recurring done task double-count', () 
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(0);
@@ -138,6 +140,7 @@ describe('Planner Selectors - #8232 timed recurring done task double-count', () 
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(ONE_HOUR);
@@ -169,6 +172,7 @@ describe('Planner Selectors - #8232 timed recurring done task double-count', () 
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(0);
@@ -183,6 +187,7 @@ describe('Planner Selectors - #8232 timed recurring done task double-count', () 
       emptyPlannerState,
       defaultScheduleConfig,
       0,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result[0].timeEstimate).toBe(ONE_HOUR);

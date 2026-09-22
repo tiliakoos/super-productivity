@@ -331,7 +331,7 @@
     </span>
   </button>
 
-  @if (!task.isDone) {
+  @if (!task.isDone && !task.parentId) {
     <button
       #orderMenuTrigger="matMenuTrigger"
       [matMenuTriggerFor]="orderMenu"

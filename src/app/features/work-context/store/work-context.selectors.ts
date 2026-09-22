@@ -11,8 +11,10 @@ import {
   selectTaskEntities,
   selectTaskEntitiesInActiveProjects,
   selectTaskFeatureState,
+  selectTaskOrderIndex,
   selectTaskSchedulingSnapshotRecord,
 } from '../../tasks/store/task.selectors';
+import { compareByDayRank } from '../../tasks/task-order.util';
 import { Task, TaskWithDueTime, TaskWithSubTasks } from '../../tasks/task.model';
 import { devError } from '../../../util/dev-error';
 import { selectProjectFeatureState } from '../../project/store/project.selectors';
@@ -348,14 +350,21 @@ export const selectTodayTaskIds = createSelector(
   selectTaskSchedulingSnapshotRecord,
   selectTodayStr,
   selectStartOfNextDayDiffMs,
-  (tagState, activeTaskEntities, todayStr, startOfNextDayDiffMs): string[] => {
+  selectTaskOrderIndex,
+  (
+    tagState,
+    activeTaskEntities,
+    todayStr,
+    startOfNextDayDiffMs,
+    orderIndex,
+  ): string[] => {
     const todayTag = tagState.entities[TODAY_TAG.id];
     return computeOrderedTaskIdsForToday(
       todayTag,
       activeTaskEntities,
       todayStr,
       startOfNextDayDiffMs,
-    );
+    ).sort(compareByDayRank(orderIndex.rankById));
   },
 );
 

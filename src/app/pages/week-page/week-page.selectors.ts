@@ -3,11 +3,17 @@ import {
   selectStartOfNextDayDiffMs,
   selectTodayStr,
 } from '../../root-store/app-state/app-state.selectors';
-import { selectAllTasksInActiveProjects } from '../../features/tasks/store/task.selectors';
+import {
+  selectAllTasksInActiveProjects,
+  selectTaskOrderIndex,
+} from '../../features/tasks/store/task.selectors';
 import { selectTodayTaskIds } from '../../features/work-context/store/work-context.selectors';
 import { selectPlannerState } from '../../features/planner/store/planner.selectors';
 import { Task } from '../../features/tasks/task.model';
-import { getTaskPlannedDay } from '../../features/tasks/task-order.util';
+import {
+  compareByDayRank,
+  getTaskPlannedDay,
+} from '../../features/tasks/task-order.util';
 import { getDbDateStr } from '../../util/get-db-date-str';
 import { parseDbDateStr } from '../../util/parse-db-date-str';
 
@@ -22,7 +28,15 @@ export const selectWeekDays = createSelector(
   selectStartOfNextDayDiffMs,
   selectTodayTaskIds,
   selectPlannerState,
-  (tasks, todayStr, startOfNextDayDiffMs, todayTaskIds, plannerState): WeekDay[] => {
+  selectTaskOrderIndex,
+  (
+    tasks,
+    todayStr,
+    startOfNextDayDiffMs,
+    todayTaskIds,
+    plannerState,
+    orderIndex,
+  ): WeekDay[] => {
     const days: WeekDay[] = [];
     const dayByDate = new Map<string, WeekDay>();
     const cursor = parseDbDateStr(todayStr);
@@ -44,20 +58,20 @@ export const selectWeekDays = createSelector(
       }
     }
 
-    // Same order as the Planner: today follows the Today list, other days follow
-    // their planner day; tasks the stored order does not know keep their place.
+    // Same order as the Planner: ranked tasks first, then today follows the
+    // Today list and other days their planner day; tasks the stored order does
+    // not know keep their place.
+    const byRank = compareByDayRank(orderIndex.rankById);
     for (const weekDay of days) {
       const storedOrder =
         weekDay.day === todayStr ? todayTaskIds : plannerState.days[weekDay.day] || [];
-      if (storedOrder.length === 0) {
-        continue;
-      }
       const position = new Map(storedOrder.map((id, i) => [id, i]));
-      weekDay.tasks.sort((a, b) => {
-        const pa = position.get(a.id) ?? Infinity;
-        const pb = position.get(b.id) ?? Infinity;
-        return pa === pb ? 0 : pa - pb;
-      });
+      weekDay.tasks.sort(
+        (a, b) =>
+          byRank(a.id, b.id) ||
+          (position.get(a.id) ?? Infinity) - (position.get(b.id) ?? Infinity) ||
+          0,
+      );
     }
 
     return days;

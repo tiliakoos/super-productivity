@@ -45,6 +45,7 @@ import { TaskComponent } from '../task/task.component';
 import { AsyncPipe } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
 import { TaskViewCustomizerService } from '../../task-view-customizer/task-view-customizer.service';
+import { TaskOrderService } from '../task-order.service';
 import { TaskLog } from '../../../core/log';
 import { ScheduleExternalDragService } from '../../schedule/schedule-week/schedule-external-drag.service';
 import { DEFAULT_OPTIONS, NO_TAG_GROUP_ID } from '../../task-view-customizer/types';
@@ -113,6 +114,7 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
   private _sectionService = inject(SectionService);
   private _issueService = inject(IssueService);
   private _taskViewCustomizerService = inject(TaskViewCustomizerService);
+  private _taskOrder = inject(TaskOrderService);
   private _scheduleExternalDragService = inject(ScheduleExternalDragService);
   private _dateService = inject(DateService);
   private _ngZone = inject(NgZone);
@@ -503,12 +505,13 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
             ...targetListData.filteredTasks.filter((t) => t.id !== draggedTask.id),
             draggedTask,
           ];
+    const newOrderedIds = newIds.map((t) => t.id);
     // Log ids only — task objects carry user titles/notes and the log history
     // is exportable (see core/log rule: never log user content).
     TaskLog.log(srcListData.listModelId, '=>', targetListData.listModelId, {
       targetTaskId: targetTask?.id,
       draggedTaskId: draggedTask.id,
-      newIds: newIds.map((t) => t.id),
+      newIds: newOrderedIds,
     });
 
     this.dropListService.blockAniTrigger$.next();
@@ -518,9 +521,15 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
       targetListData.listModelId,
       srcListData.listId,
       targetListData.listId,
-      newIds.map((p) => p.id),
+      newOrderedIds,
       draggedTask as TaskWithSubTasks,
     );
+    if (
+      this._workContextService.activeWorkContextId === TODAY_TAG.id &&
+      targetListData.listModelId === 'UNDONE'
+    ) {
+      this._taskOrder.setRankFromPosition(draggedTask as TaskWithSubTasks, newOrderedIds);
+    }
 
     this._taskViewCustomizerService.setSort(DEFAULT_OPTIONS.sort);
   }

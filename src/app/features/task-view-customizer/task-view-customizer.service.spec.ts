@@ -340,31 +340,6 @@ describe('TaskViewCustomizerService', () => {
     ]);
   });
 
-  it('should sort by day order with unkeyed and done tasks last', () => {
-    const tasks: TaskWithSubTasks[] = [
-      { ...mockTasks[0], id: 'unkeyed' },
-      { ...mockTasks[1], id: 'third', orderKey: 30 },
-      { ...mockTasks[2], id: 'done-keyed', orderKey: 1, isDone: true },
-      { ...mockTasks[0], id: 'first', orderKey: 10 },
-    ];
-
-    const asc = service['applySort'](tasks, SORT_OPTION_TYPE.dayOrder);
-    const desc = service['applySort'](tasks, SORT_OPTION_TYPE.dayOrder, SORT_ORDER.DESC);
-
-    expect(asc.map((task) => task.id)).toEqual([
-      'first',
-      'third',
-      'unkeyed',
-      'done-keyed',
-    ]);
-    expect(desc.map((task) => task.id)).toEqual([
-      'unkeyed',
-      'done-keyed',
-      'third',
-      'first',
-    ]);
-  });
-
   it('should place date-only tasks after timed tasks on the same scheduled day', () => {
     const scheduledAt = (day: string, time: string): number =>
       getDateTimeFromClockString(time, parseDbDateStr(day));
@@ -1485,6 +1460,25 @@ describe('TaskViewCustomizerService', () => {
       expect(newService.selectedSort()).toEqual(savedSort);
       expect(newService.selectedGroup()).toEqual(savedGroup);
       expect(newService.selectedFilter()).toEqual(restoredSavedFilter);
+    });
+
+    it('should fall back to the default sort when the stored sort type no longer exists', () => {
+      localStorage.setItem(
+        LS.TASK_VIEW_CUSTOMIZER_BY_CONTEXT,
+        JSON.stringify({
+          [`${WorkContextType.TAG}:TODAY`]: {
+            sort: { type: 'dayOrder', order: SORT_ORDER.ASC, label: 'Order' },
+            group: savedGroup,
+            filter: savedFilter,
+          },
+        }),
+      );
+
+      const newService = buildService(
+        of({ activeId: 'TODAY', activeType: WorkContextType.TAG }),
+      );
+
+      expect(newService.selectedSort()).toEqual(DEFAULT_OPTIONS.sort);
     });
 
     it('should load defaults for a context with no saved state', () => {

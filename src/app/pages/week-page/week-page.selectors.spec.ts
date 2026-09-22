@@ -1,6 +1,7 @@
 import { DEFAULT_TASK, Task } from '../../features/tasks/task.model';
 import { selectAllTasksInActiveProjects } from '../../features/tasks/store/task.selectors';
 import { selectWeekDays } from './week-page.selectors';
+import { EMPTY_TASK_ORDER_INDEX } from '../../features/tasks/task-order.util';
 import { PlannerState } from '../../features/planner/store/planner.reducer';
 
 describe('selectWeekDays', () => {
@@ -50,6 +51,7 @@ describe('selectWeekDays', () => {
       offsetMs,
       [],
       emptyPlanner,
+      EMPTY_TASK_ORDER_INDEX,
     );
 
     expect(result.map((day) => day.day)).toEqual([
@@ -95,10 +97,14 @@ describe('selectWeekDays', () => {
       new Set(),
     );
 
-    const result = selectWeekDays.projector(activeTasks, today, 0, ['c', 'a'], {
-      ...emptyPlanner,
-      days: { [tomorrow]: ['y', 'x'] },
-    });
+    const result = selectWeekDays.projector(
+      activeTasks,
+      today,
+      0,
+      ['c', 'a'],
+      { ...emptyPlanner, days: { [tomorrow]: ['y', 'x'] } },
+      EMPTY_TASK_ORDER_INDEX,
+    );
 
     expect(result[0].tasks.map((t) => t.id)).toEqual(['c', 'a', 'b']);
     expect(result[1].tasks.map((t) => t.id)).toEqual(['y', 'x']);
