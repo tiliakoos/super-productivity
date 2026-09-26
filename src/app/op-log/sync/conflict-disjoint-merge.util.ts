@@ -15,7 +15,7 @@
  * `synthesizeMergedChanges`.
  */
 
-import { OpType } from '../core/operation.types';
+import { ActionType, OpType } from '../core/operation.types';
 import type { Operation } from '../core/operation.types';
 import {
   extractActionPayload,
@@ -191,6 +191,61 @@ const nonNoiseKeys = (changes: Record<string, unknown>): string[] =>
   Object.keys(changes).filter((field) => !NOISE_FIELDS.has(field));
 
 /**
+ * True for an op whose mutation is a persistent additive DELTA on the task's
+ * time fields rather than a field assignment: `syncTimeSpent` adds to
+ * `timeSpentOnDay[date]`, `removeTimeSpent` subtracts from it clamping at zero.
+ * Such a delta does not commute with an absolute write of the same fields, and
+ * it can never be expressed as a merged patch (#10146, #10147).
+ * `removeTimeSpent` is listed explicitly: its extraction happens to yield `{}`
+ * (opaque) today, and nothing else keeps it out of a synthesized merge.
+ */
+export const isAdditiveTimeOp = (op: Operation): boolean =>
+  op.actionType === ActionType.TIME_TRACKING_SYNC_TIME_SPENT ||
+  op.actionType === ActionType.TASK_REMOVE_TIME_SPENT;
+
+/** The task fields a `syncTimeSpent` delta mutates once applied. */
+const SYNC_TIME_SPENT_FIELDS: readonly string[] = ['timeSpent', 'timeSpentOnDay'];
+
+/**
+ * The non-NOISE fields one side touches, for the disjointness test only, split
+ * by how they are written: `absolute` fields are assigned a value, `additive`
+ * fields only receive a `syncTimeSpent` delta. `undefined` when the side holds
+ * an opaque op (its real mutation cannot be expressed as fields, so the side
+ * must not be classified at all).
+ *
+ * A `syncTimeSpent` op is counted as touching `timeSpent`/`timeSpentOnDay`,
+ * derived from its ACTION TYPE alone. Its wire `entityChanges` are either the
+ * delta's arguments (`{ taskId, date, duration }`, direct writes) or empty
+ * (deferred writes); neither names a task field, so read as-is they would make
+ * the delta look disjoint from an absolute write of the very fields it mutates
+ * (#10146) or opaque. The mapping lives here rather than in the captured
+ * payload so the wire shape stays what released clients already read, and it is
+ * deliberately NOT surfaced through `mergeChangedFields`: the delta's values
+ * must never be applied as a field patch.
+ */
+const sideNonNoiseKeys = (
+  ops: Operation[],
+  payloadKey: string,
+  entityId: string,
+): { absolute: Set<string>; additive: Set<string> } | undefined => {
+  const absolute = new Set<string>();
+  const additive = new Set<string>();
+  for (const op of ops) {
+    if (op.actionType === ActionType.TIME_TRACKING_SYNC_TIME_SPENT) {
+      SYNC_TIME_SPENT_FIELDS.forEach((field) => additive.add(field));
+      continue;
+    }
+    if (isOpaqueChangeOp(op, payloadKey, entityId)) {
+      return undefined;
+    }
+    nonNoiseKeys(extractOpChanges(op, payloadKey, entityId)).forEach((field) =>
+      absolute.add(field),
+    );
+  }
+  return { absolute, additive };
+};
+
+/**
  * Deterministic tiebreak for a field both sides changed: the side with the
  * greater `(timestamp, clientId)`. Both clients compute the SAME global winner
  * because the comparison is over the two sides' identities, independent of which
@@ -225,7 +280,12 @@ export const noiseTiebreakSide = (
  *  - BOTH sides changed at least one real (non-noise) field — if one side only
  *    bumped noise, nothing real is lost by LWW, so leave it to SPAP-13's `noise`
  *    classification;
- *  - the two sides' non-noise changed-field sets are DISJOINT.
+ *  - the two sides' non-noise changed-field sets are DISJOINT, with a
+ *    `syncTimeSpent` op counted as touching `timeSpent`/`timeSpentOnDay` (see
+ *    `sideNonNoiseKeys`); fields only a delta touches on both sides do not
+ *    collide, since two positive deltas commute (#10214). Callers that SYNTHESIZE a merged patch must still
+ *    refuse additive time ops up front (`isAdditiveTimeOp`): this predicate only
+ *    answers whether the two sides commute.
  */
 export const isDisjointMergeEligible = (params: {
   localOps: Operation[];
@@ -246,18 +306,35 @@ export const isDisjointMergeEligible = (params: {
   // A side with opaque ops has real changes the merge could not carry over —
   // synthesizing from the extracted fields alone would drop them (and the two
   // clients would synthesize DIFFERENT entities). Fall back to LWW instead.
-  if (hasOpaqueChanges(localOps, payloadKey, entityId)) return false;
-  if (hasOpaqueChanges(remoteOps, payloadKey, entityId)) return false;
+  const local = sideNonNoiseKeys(localOps, payloadKey, entityId);
+  const remote = sideNonNoiseKeys(remoteOps, payloadKey, entityId);
+  if (local === undefined || remote === undefined) return false;
+  const isEmpty = (side: typeof local): boolean =>
+    side.absolute.size === 0 && side.additive.size === 0;
+  if (isEmpty(local) || isEmpty(remote)) return false;
 
-  const localNonNoise = nonNoiseKeys(mergeChangedFields(localOps, payloadKey, entityId));
-  const remoteNonNoise = nonNoiseKeys(
-    mergeChangedFields(remoteOps, payloadKey, entityId),
-  );
-  if (localNonNoise.length === 0 || remoteNonNoise.length === 0) return false;
-
-  const remoteSet = new Set(remoteNonNoise);
-  return !localNonNoise.some((field) => remoteSet.has(field));
+  // Positive deltas on both sides commute (#10214); an absolute write of a
+  // field collides with any write of it on the other side.
+  const absoluteCollides = (a: typeof local, b: typeof local): boolean =>
+    [...a.absolute].some((field) => b.absolute.has(field) || b.additive.has(field));
+  return !absoluteCollides(local, remote) && !absoluteCollides(remote, local);
 };
+
+/**
+ * True when a crossing involving a `syncTimeSpent` delta commutes, i.e.
+ * applying both sides as-is is lossless and convergent. A delta can never be
+ * expressed as a merged patch (`isAdditiveTimeOp`), so for such a crossing
+ * whole-entity LWW would drop one device's tracked time or edit (#10214).
+ */
+export const isCommutingTimeDeltaCrossing = (params: {
+  localOps: Operation[];
+  remoteOps: Operation[];
+  payloadKey: string;
+  entityId: string;
+}): boolean =>
+  [...params.localOps, ...params.remoteOps].some(
+    (op) => op.actionType === ActionType.TIME_TRACKING_SYNC_TIME_SPENT,
+  ) && isDisjointMergeEligible(params);
 
 /**
  * Synthesizes the merged CHANGES DELTA — the union of both sides' changed

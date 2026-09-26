@@ -21,23 +21,21 @@ const { compareIconsets, verifyIconset, verifyIcns } = require('./verify-mac-ico
 const ICON_PATH = join(__dirname, '..', 'build', 'icon.icns');
 const ICONSET_PATH = join(__dirname, '..', 'build', 'icon.iconset');
 const GENERIC_SMALL_ICON = join(__dirname, '..', 'build', 'icons', '16x16.png');
-
-// The checked-in icon.icns is written either by /usr/bin/iconutil, which emits
-// the 16x16 slot as ARGB 'ic04', or by the portable generator used off macOS,
-// which emits PNG-form 'icp4' — and the two order their chunks differently, so
-// the slot has to be located by type rather than by offset.
+// 16x16 chunk types: icp4 from the portable compiler, ic04 from iconutil, which
+// rewrites build/icon.icns (in a different chunk order) when packaging on macOS.
 const SMALL_ICON_TYPES = ['icp4', 'ic04'];
 
-const findSmallIconChunk = (buffer) => {
+const findSmallIconOffset = (icns) => {
   let offset = 8;
-  while (offset + 8 <= buffer.length) {
-    const type = buffer.toString('ascii', offset, offset + 4);
-    const length = buffer.readUInt32BE(offset + 4);
-    if (SMALL_ICON_TYPES.includes(type)) return { type, offset };
+  while (offset + 8 <= icns.length) {
+    if (SMALL_ICON_TYPES.includes(icns.toString('ascii', offset, offset + 4))) {
+      return offset;
+    }
+    const length = icns.readUInt32BE(offset + 4);
     if (length < 8) break;
     offset += length;
   }
-  throw new Error('no 16x16 representation chunk in icon.icns');
+  throw new Error('no 16x16 chunk in icns');
 };
 
 test('macOS icon generator launches npm through Node on Windows', () => {
@@ -64,9 +62,9 @@ test('checked-in macOS icon sources contain every standard representation', () =
 
 test('macOS icon verification rejects unrecognized small-icon payloads', () => {
   const mangledIcon = Buffer.from(readFileSync(ICON_PATH));
-  const smallIcon = findSmallIconChunk(mangledIcon);
-  mangledIcon.write('ic04', smallIcon.offset, 4, 'ascii');
-  mangledIcon.fill(0, smallIcon.offset + 8, smallIcon.offset + 16);
+  const smallIconOffset = findSmallIconOffset(mangledIcon);
+  mangledIcon.write('ic04', smallIconOffset, 4, 'ascii');
+  mangledIcon.fill(0, smallIconOffset + 8, smallIconOffset + 16);
 
   assert.throws(
     () => verifyIcns(mangledIcon, 'mangled.icns', ICONSET_PATH),
@@ -189,7 +187,6 @@ const buildIcnsWithArgbSmallIcon = (pixels) => {
   const argbData = Buffer.concat([Buffer.from('ARGB', 'ascii'), ...planes]);
 
   const source = readFileSync(ICON_PATH);
-  const smallIcon = findSmallIconChunk(source);
   const chunks = [];
   let offset = 8;
   while (offset < source.length) {
@@ -197,7 +194,7 @@ const buildIcnsWithArgbSmallIcon = (pixels) => {
     const length = source.readUInt32BE(offset + 4);
     // iconutil emits the 16x16 slot as ic04 with ARGB data; mirror that shape.
     chunks.push(
-      type === smallIcon.type
+      SMALL_ICON_TYPES.includes(type)
         ? { type: 'ic04', data: argbData }
         : { type, data: source.subarray(offset + 8, offset + length) },
     );

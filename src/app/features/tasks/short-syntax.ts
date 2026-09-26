@@ -448,7 +448,9 @@ export const shortSyntax = async (
     }
   }
 
-  if (config.isEnableDeadline) {
+  // don't allow for issue tasks: imported titles like "Crash on save !3"
+  // would otherwise get an unasked-for deadline
+  if (config.isEnableDeadline && !task.issueId) {
     const deadlineResult = await parseDeadlineDate(tracked, now);
     if (deadlineResult) {
       taskChanges = { ...taskChanges, ...deadlineResult.changes };
@@ -779,18 +781,19 @@ const parseShortSyntaxDate = async (
   if (!tracked.text) {
     return null;
   }
-  const rr = tracked.text.match(regEx);
+  const text = tracked.text;
+  // A deadline trigger only counts at the start of the title or after a space
+  // (so "Done!" is not a deadline). Skip a match that fails this check rather
+  // than giving up, so "wow! !tomorrow" still finds "!tomorrow" (#10217).
+  const rr =
+    [...text.matchAll(regEx)].find((m) => {
+      const index = m.index ?? 0;
+      const charBeforeTrigger = index > 0 ? text.charAt(index - 1) : '';
+      return !isDeadline || !charBeforeTrigger || charBeforeTrigger === ' ';
+    }) ?? null;
 
   if (rr && rr[0]) {
-    if (isDeadline) {
-      // Check if the character before trigger is a space or start of string
-      const indexBeforeTrigger = tracked.text.indexOf(rr[0]) - 1;
-      const charBeforeTrigger =
-        indexBeforeTrigger >= 0 ? tracked.text.charAt(indexBeforeTrigger) : '';
-      if (charBeforeTrigger && charBeforeTrigger !== ' ') {
-        return null;
-      }
-    }
+    const triggerIndex = rr.index ?? 0;
 
     if (!isDeadline && isParseRepeat) {
       const repeatResult = parseRepeatSyntax(rr[0].substring(1));
@@ -806,7 +809,7 @@ const parseShortSyntaxDate = async (
 
     // Strip out the short syntax for scheduled date and given date
     const consume = (textToReplace: string): TextRange[] => {
-      const removeStart = tracked.text.indexOf(textToReplace);
+      const removeStart = tracked.text.indexOf(textToReplace, triggerIndex);
       if (removeStart === -1) {
         return [];
       }

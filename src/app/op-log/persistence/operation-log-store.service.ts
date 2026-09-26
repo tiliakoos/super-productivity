@@ -71,6 +71,7 @@ import {
   encodeOperation,
 } from './compact/operation-codec.service';
 import { LockService } from '../sync/lock.service';
+import { rebaseLocalClockOnDurable } from './operation-log-clock.util';
 
 /**
  * Vector clock entry stored in the vector_clock object store.
@@ -343,26 +344,14 @@ interface OpLogDB extends DBSchema {
 type OpLogStoreName = (typeof STORE_NAMES)[keyof typeof STORE_NAMES];
 
 /**
- * Rebases a local operation's proposed clock onto the durable clock read in
- * the same transaction: entry-wise max, with this client's counter bumped
- * past the durable value. Makes counter reuse/regression unrepresentable
- * regardless of what the caller derived its proposed clock from (#8939).
- */
-/**
- * Bounds a clock that has just been rebased on the durable clock.
- *
- * `pruneClockForStorage` runs before the transaction opens, so a disjoint
- * bounded durable clock unioned with a bounded proposed clock can exceed
- * MAX_VECTOR_CLOCK_SIZE again (20 + 20 = 40). Re-bound after the rebase,
- * preserving the same authors `pruneClockForStorage` does. Synchronous so it
- * is safe to call while an IndexedDB transaction is open.
+ * Re-bound inside the transaction: merging bounded durable/proposed clocks can
+ * exceed MAX_VECTOR_CLOCK_SIZE. Preserve the same authors as pruneClockForStorage.
  */
 const boundRebasedClock = (
   clock: VectorClock,
   currentClientId: string | null,
   importAuthorId: string | undefined,
 ): VectorClock => {
-  // No client ID -> no pruning at all (never prune with the author id alone).
   if (!currentClientId) {
     return clock;
   }
@@ -370,22 +359,6 @@ const boundRebasedClock = (
     clock,
     importAuthorId ? [currentClientId, importAuthorId] : [currentClientId],
   );
-};
-
-const rebaseLocalClockOnDurable = (
-  durableClock: VectorClock,
-  proposedClock: VectorClock,
-  clientId: string,
-): VectorClock => {
-  const merged: VectorClock = { ...durableClock };
-  for (const [id, counter] of Object.entries(proposedClock)) {
-    merged[id] = Math.max(merged[id] ?? 0, counter);
-  }
-  merged[clientId] = Math.max(
-    (durableClock[clientId] ?? 0) + 1,
-    proposedClock[clientId] ?? 0,
-  );
-  return merged;
 };
 
 /**
@@ -1277,10 +1250,16 @@ export class OperationLogStoreService implements RemoteOperationApplyStorePort<O
    * predecessor IDs can be rejected in that same transaction. Missing or
    * inactive IDs abort the commit so callers cannot mistake a partial recovery
    * for success.
+   * Repair archives join this transaction; their caller must hold TASK_ARCHIVE
+   * from snapshot capture through this commit. Omitted partitions stay untouched.
    */
   async appendMixedSourceBatchSkipDuplicates(
     batches: readonly MixedSourceOperationBatch[],
-    options?: { rejectOpIds?: readonly string[] },
+    options?: {
+      rejectOpIds?: readonly string[];
+      archiveYoung?: unknown;
+      archiveOld?: unknown;
+    },
   ): Promise<{ written: MixedSourceWrittenOperation[]; skippedCount: number }> {
     const nonEmptyBatches = batches.filter((batch) => batch.ops.length > 0);
     const rejectOpIds = [...new Set(options?.rejectOpIds ?? [])];
@@ -1298,6 +1277,13 @@ export class OperationLogStoreService implements RemoteOperationApplyStorePort<O
     }
 
     const storeNames: OpLogStoreName[] = [STORE_NAMES.OPS, STORE_NAMES.VECTOR_CLOCK];
+    const archives = [
+      [STORE_NAMES.ARCHIVE_YOUNG, options?.archiveYoung],
+      [STORE_NAMES.ARCHIVE_OLD, options?.archiveOld],
+    ] as const;
+    for (const [name, data] of archives) {
+      if (data !== undefined) storeNames.push(name);
+    }
     if (
       nonEmptyBatches.some((batch) =>
         batch.ops.some((op) => isFullStateOpType(op.opType)),
@@ -1389,6 +1375,11 @@ export class OperationLogStoreService implements RemoteOperationApplyStorePort<O
             { clock: runningClock, lastUpdate: committedAt } satisfies VectorClockEntry,
             SINGLETON_KEY,
           );
+        }
+        for (const [name, data] of archives) {
+          if (data !== undefined) {
+            await tx.put(name, { id: SINGLETON_KEY, data });
+          }
         }
       });
     } catch (e) {
@@ -1697,20 +1688,6 @@ export class OperationLogStoreService implements RemoteOperationApplyStorePort<O
   }
 
   /**
-   * Deletes all full-state operations (SYNC_IMPORT, BACKUP_IMPORT, REPAIR) from the local store.
-   *
-   * This is used when force-downloading remote state (USE_REMOTE in conflict resolution).
-   * The local import operation must be removed so that incoming remote ops aren't filtered
-   * against it.
-   *
-   * @returns Number of operations deleted
-   */
-  async clearFullStateOps(): Promise<number> {
-    // Deleting all full-state ops is the no-exclusion case of clearFullStateOpsExcept.
-    return this.clearFullStateOpsExcept([]);
-  }
-
-  /**
    * Deletes all full-state operations (SYNC_IMPORT, BACKUP_IMPORT, REPAIR) from the local store,
    * EXCEPT for the operation(s) with the specified ID(s).
    *
@@ -1889,29 +1866,6 @@ export class OperationLogStoreService implements RemoteOperationApplyStorePort<O
         if (entry) {
           entry.rejectedAt = now;
           await tx.put(STORE_NAMES.OPS, entry);
-        }
-      }
-    });
-    this._invalidateUnsyncedCache();
-  }
-
-  /**
-   * Clears all unsynced local operations by marking them as rejected.
-   * Used when force-downloading remote state to discard local changes.
-   */
-  async clearUnsyncedOps(): Promise<void> {
-    await this._ensureInit();
-
-    const unsynced = await this.getUnsynced();
-    if (unsynced.length === 0) return;
-
-    const now = Date.now();
-    await this._adapter.transaction([STORE_NAMES.OPS], 'readwrite', async (tx) => {
-      for (const entry of unsynced) {
-        const stored = await tx.get<StoredOperationLogEntry>(STORE_NAMES.OPS, entry.seq);
-        if (stored) {
-          stored.rejectedAt = now;
-          await tx.put(STORE_NAMES.OPS, stored);
         }
       }
     });
@@ -2209,19 +2163,6 @@ export class OperationLogStoreService implements RemoteOperationApplyStorePort<O
         id: BACKUP_KEY,
       });
     }
-  }
-
-  /**
-   * Loads the backup state cache, if one exists.
-   * Used for crash recovery during migration.
-   */
-  async loadStateCacheBackup(): Promise<StateCacheEntry | null> {
-    await this._ensureInit();
-    const backup = await this._adapter.get<StateCacheEntry>(
-      STORE_NAMES.STATE_CACHE,
-      BACKUP_KEY,
-    );
-    return backup || null;
   }
 
   /**

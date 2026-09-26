@@ -48,7 +48,9 @@ const SUPERSYNC_OPS_ROUTE = '**/api/sync/ops*';
 export const routeSuperSyncOps = async (
   page: Page,
   handler: (route: Route) => Promise<void>,
-): Promise<void> => page.route(SUPERSYNC_OPS_ROUTE, handler);
+): Promise<void> => {
+  await page.route(SUPERSYNC_OPS_ROUTE, handler);
+};
 
 export const unrouteSuperSyncOps = async (page: Page): Promise<void> =>
   page.unroute(SUPERSYNC_OPS_ROUTE);
@@ -369,6 +371,8 @@ export const createSimulatedClient = async (
   testPrefix: string,
   options: {
     allowExampleTasks?: boolean;
+    /** Released bundles register service workers; block them when switching builds. */
+    serviceWorkers?: 'allow' | 'block';
     /**
      * Runs on the app origin with all JavaScript blocked, before the app boots
      * for the first time — for seeding IndexedDB (e.g. seedSuperSyncCredentials).
@@ -385,6 +389,7 @@ export const createSimulatedClient = async (
     userAgent: `PLAYWRIGHT SYNC-CLIENT-${clientName}`,
     baseURL: effectiveBaseURL,
     viewport: { width: 1920, height: 1080 },
+    serviceWorkers: options.serviceWorkers,
   });
 
   // Install the devError/beforeunload fallback on EVERY page this context ever
@@ -1150,7 +1155,8 @@ export const getTaskTimeSpentFromState = async (
       }
     ).__e2eTestHelpers;
 
-    if (helpers?.store) {
+    const liveStore = helpers?.store;
+    if (liveStore) {
       const liveState = await new Promise<Record<string, unknown> | null>((resolve) => {
         let isDone = false;
         const subscriptionRef: { current?: StoreSubscription } = {};
@@ -1163,7 +1169,7 @@ export const getTaskTimeSpentFromState = async (
           resolve(isRecord(state) ? state : null);
         };
 
-        subscriptionRef.current = helpers.store.subscribe(finish);
+        subscriptionRef.current = liveStore.subscribe(finish);
         window.setTimeout(() => finish(null), 1000);
       });
 

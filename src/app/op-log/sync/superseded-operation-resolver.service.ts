@@ -32,7 +32,6 @@ import {
   areCommutingSectionOperations,
   projectSectionReplayAgainstState,
   SectionReplayOrder,
-  SectionReplaySnapshot,
   SectionReplayStateCompensation,
 } from './section-conflict-commutativity.util';
 import { getOpEntityIds } from '../util/get-op-entity-ids.util';
@@ -42,6 +41,15 @@ import { getPhantomChangeRisk } from '../capture/phantom-change-guard.util';
 import { SectionState } from '../../features/section/section.model';
 import { ProjectState } from '../../features/project/project.model';
 import { TagState } from '../../features/tag/tag.model';
+import { Task } from '../../features/tasks/task.model';
+import {
+  areCommutingReorderAndContentOperations,
+  isContentReorderOperation,
+  isReorderConflictOperation,
+  projectReorderConflictAgainstState,
+  ReorderReplaySnapshot,
+} from './reorder-conflict.util';
+import { UnsupportedMultiEntityConflictError } from '../core/errors/sync-errors';
 
 type SupersededOperation = {
   opId: string;
@@ -165,13 +173,49 @@ export class SupersededOperationResolverService {
     };
   }
 
+  /**
+   * Re-creates a superseded `restoreTask` as a `restoreTask` projected from live
+   * state (the task and its current subtasks), so remote edits applied since
+   * the restore ride along. An LWW Update would recreate the task on receivers
+   * without the archive cleanup only the semantic restore triggers, leaving a
+   * stale archived copy next to the active task (#10196).
+   */
+  private async _createLiveRestoreOp(
+    sourceOp: Operation,
+    liveTask: Task,
+    vectorClock: VectorClock,
+    clientId: string,
+  ): Promise<Operation> {
+    const subTasks: Task[] = [];
+    for (const subTaskId of liveTask.subTaskIds ?? []) {
+      const subTask = await this.conflictResolutionService.getCurrentEntityState(
+        'TASK',
+        subTaskId,
+      );
+      if (subTask) {
+        subTasks.push(subTask as Task);
+      }
+    }
+    // Scheduling is already materialized in liveTask. Replaying the original
+    // restoreToToday would undo later Planner moves, whose PLANNER ops do not
+    // share this restore's TASK conflict group.
+    const actionPayload = { task: liveTask, subTasks };
+    return this._recreateOpWithMergedClock(
+      { ...sourceOp, payload: { actionPayload, entityChanges: [] } },
+      vectorClock,
+      clientId,
+      sourceOp.timestamp,
+    );
+  }
+
   private _getSectionCausalReplayDecision(
     item: SupersededOperation,
     context: SectionCausalReplayContext,
   ): SectionCausalReplayDecision {
     const existingClock = item.existingClock;
     if (
-      !CAUSALLY_REPLAYABLE_SECTION_ACTIONS.has(item.op.actionType) ||
+      (!CAUSALLY_REPLAYABLE_SECTION_ACTIONS.has(item.op.actionType) &&
+        !isReorderConflictOperation(item.op)) ||
       !existingClock ||
       compareVectorClocks(item.op.vectorClock, existingClock) !==
         VectorClockComparison.CONCURRENT
@@ -204,7 +248,8 @@ export class SupersededOperationResolverService {
       retainedConflictEntry.applicationStatus !== 'applied' ||
       retainedConflictEntry.rejectedAt !== undefined ||
       retainedConflictEntry.reducerRejectedAt !== undefined ||
-      !areCommutingSectionOperations(item.op, retainedConflictEntry.op)
+      (!areCommutingSectionOperations(item.op, retainedConflictEntry.op) &&
+        !areCommutingReorderAndContentOperations(item.op, retainedConflictEntry.op))
     ) {
       return 'fallback';
     }
@@ -218,7 +263,7 @@ export class SupersededOperationResolverService {
    * between them. Later user actions wait behind the operation-log lock for
    * persistence and therefore follow the compensation in durable order.
    */
-  private _getStableSectionReplaySnapshot(): SectionReplaySnapshot {
+  private _getStableSectionReplaySnapshot(): ReorderReplaySnapshot {
     const phantomRisk = getPhantomChangeRisk(this.operationCapture);
     if (phantomRisk) {
       throw new Error(`Cannot project SECTION conflict recovery while ${phantomRisk}.`);
@@ -228,6 +273,9 @@ export class SupersededOperationResolverService {
       section: snapshot.section as SectionState,
       project: snapshot.project as ProjectState,
       tag: snapshot.tag as TagState,
+      note: snapshot.note as ReorderReplaySnapshot['note'],
+      simpleCounter: snapshot.simpleCounter as ReorderReplaySnapshot['simpleCounter'],
+      boards: snapshot.boards as ReorderReplaySnapshot['boards'],
     };
   }
 
@@ -297,17 +345,18 @@ export class SupersededOperationResolverService {
       // entity snapshot cannot represent. Re-create one only when the exact
       // applied server row proves a commuting crossing. Project its payload
       // against one stable live-state frontier so anchors and every later local
-      // successor are represented without an action-family allowlist. Malformed
-      // or unrepresentable crossings retain the generic LWW fallback.
+      // successor are represented without an action-family allowlist. A recognized
+      // reorder without this proof must stay pending: entity LWW cannot carry it.
       const regularSupersededOps: SupersededOperation[] = [];
       let sectionReplayContext: SectionCausalReplayContext | undefined;
-      let sectionReplaySnapshot: SectionReplaySnapshot | undefined;
+      let sectionReplaySnapshot: ReorderReplaySnapshot | undefined;
       for (const [itemIndex, item] of supersededOps.entries()) {
         let projectedSectionOp: Operation | undefined;
         let projectedWorkContextState: WorkContextStateProjection | undefined;
         let projectedOrder: SectionReplayOrder | undefined;
         if (
-          CAUSALLY_REPLAYABLE_SECTION_ACTIONS.has(item.op.actionType) &&
+          (CAUSALLY_REPLAYABLE_SECTION_ACTIONS.has(item.op.actionType) ||
+            isReorderConflictOperation(item.op)) &&
           item.existingClock
         ) {
           if (!sectionReplayContext) {
@@ -320,10 +369,9 @@ export class SupersededOperationResolverService {
           );
           if (replayDecision === 'replay') {
             sectionReplaySnapshot ??= this._getStableSectionReplaySnapshot();
-            const projection = projectSectionReplayAgainstState(
-              item.op,
-              sectionReplaySnapshot,
-            );
+            const projection = isReorderConflictOperation(item.op)
+              ? projectReorderConflictAgainstState(item.op, sectionReplaySnapshot)
+              : projectSectionReplayAgainstState(item.op, sectionReplaySnapshot);
             if (projection.kind === 'superseded') {
               opsToReject.push(item.opId);
               OpLog.normal(
@@ -335,7 +383,7 @@ export class SupersededOperationResolverService {
             if (projection.kind === 'blocked') {
               OpLog.warn(
                 `SupersededOperationResolverService: Cannot safely project SECTION ` +
-                  `intent ${item.opId}: ${projection.reason}. Falling back to LWW.`,
+                  `intent ${item.opId}: ${projection.reason}.`,
               );
             } else if (projection.kind === 'work-context-state') {
               projectedWorkContextState = projection;
@@ -345,6 +393,22 @@ export class SupersededOperationResolverService {
               projectedWorkContextState = projection.stateCompensation;
             }
           }
+        }
+
+        // Compaction can remove the applied conflict row while retaining the
+        // unsynced reorder. Entity LWW cannot carry that list write and also loses
+        // SimpleCounter.type during action conversion. Keep both intents pending.
+        if (
+          (isContentReorderOperation(item.op) ||
+            item.op.actionType === ActionType.COUNTER_SET_TODAY) &&
+          !projectedSectionOp &&
+          !projectedWorkContextState
+        ) {
+          throw new UnsupportedMultiEntityConflictError(
+            'local',
+            item.op.actionType,
+            getOpEntityIds(item.op).length,
+          );
         }
 
         if (
@@ -502,6 +566,29 @@ export class SupersededOperationResolverService {
           // Still mark the ops as rejected, but track that changes were discarded
           opsToReject.push(...entityOps.map((e) => e.opId));
           discardedChangesCount += entityOps.length;
+          continue;
+        }
+
+        // Only a SOLE restore keeps its semantic type: a restore is a no-op on
+        // receivers where the task is already active, so it could not carry
+        // later edits of the same task there — those keep the LWW snapshot.
+        if (
+          entityOps.length === 1 &&
+          firstOp.actionType === ActionType.TASK_SHARED_RESTORE &&
+          entityType === 'TASK'
+        ) {
+          const restoreOp = await this._createLiveRestoreOp(
+            firstOp,
+            entityState as Task,
+            mergedClock,
+            clientId,
+          );
+          newOpsCreated.push(restoreOp);
+          opsToReject.push(entityOps[0].opId);
+          OpLog.normal(
+            `SupersededOperationResolverService: Created replacement restoreTask op ` +
+              `${restoreOp.id} for ${entityKey}, replacing superseded op ${entityOps[0].opId}`,
+          );
           continue;
         }
 

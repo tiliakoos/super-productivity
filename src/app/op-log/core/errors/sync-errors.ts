@@ -91,7 +91,9 @@ export class LocalDataConflictError extends Error {
 
   constructor(
     public readonly unsyncedCount: number,
-    public readonly remoteSnapshotState: Record<string, unknown>,
+    // `null` when the remote side arrived as ops without a snapshot (#9391) —
+    // there is no full remote state to show.
+    public readonly remoteSnapshotState: Record<string, unknown> | null,
     public readonly remoteVectorClock?: Record<string, number>,
     // The client's vector clock as of its last successful sync. Used by the
     // conflict dialog as an APPROXIMATE baseline for the per-client
@@ -437,6 +439,19 @@ export class ModelValidationError extends Error {
   }
 }
 
+/**
+ * A backup import refused because its data is invalid and repair cannot fix it,
+ * so importing would persist and broadcast state every client rejects (#8279).
+ * UI paths map it to a translated "use an older backup" message.
+ */
+export class BackupRepairFailedError extends Error {
+  override name = 'BackupRepairFailedError';
+
+  constructor() {
+    super('Data validation failed and repair not possible');
+  }
+}
+
 export class DataValidationFailedError extends Error {
   override name = 'DataValidationFailedError';
   additionalLog?: string;
@@ -542,6 +557,9 @@ export class StorageQuotaExceededError extends Error {
  * This can occur when the remote file was written by a different (older or newer)
  * version of the app. Force-uploading is unsafe in this case because the remote
  * may be in a newer format.
+ *
+ * `isRemoteNewer` marks a file written in a format NEWER than this build reads:
+ * it is healthy, so it must never be "recovered" from an older backup (#8764).
  */
 export class SyncDataCorruptedError extends Error {
   override name = 'SyncDataCorruptedError';
@@ -549,6 +567,7 @@ export class SyncDataCorruptedError extends Error {
   constructor(
     message: string,
     public readonly filePath: string,
+    public readonly isRemoteNewer = false,
   ) {
     super(`Sync data incompatible at ${filePath}: ${message}`);
   }

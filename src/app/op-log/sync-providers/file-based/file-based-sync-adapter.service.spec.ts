@@ -387,13 +387,16 @@ describe('FileBasedSyncAdapterService', () => {
       );
     });
 
-    it('should handle version mismatch gracefully without piggybacking', async () => {
+    it('should download an unseen revision before retrying without piggybacking', async () => {
+      mockProvider.id = SyncProviderId.Dropbox;
+      adapter = service.createAdapter(mockProvider, mockCfg, mockEncryptKey);
       // First, download to set expected version
       const syncData = createMockSyncData({ syncVersion: 1 });
       mockProvider.downloadFile.and.returnValue(
         Promise.resolve({ dataStr: addPrefix(syncData), rev: 'rev-1' }),
       );
-      await adapter.downloadOps(0); // Sets expected version to 1
+      await adapter.downloadOps(0);
+      await adapter.setLastServerSeq(1);
 
       // Now configure for upload - upload will download again and expect version 1
       mockProvider.uploadFile.and.returnValue(Promise.resolve({ rev: 'rev-2' }));
@@ -423,17 +426,97 @@ describe('FileBasedSyncAdapterService', () => {
         Promise.resolve({ dataStr: addPrefix(syncDataV3), rev: 'rev-3' }),
       );
 
-      // Our next upload should succeed — no piggybacked ops returned
+      // Refuse the stale monolith before even writing its backup.
+      mockProvider.uploadFile.calls.reset();
       const op2 = createMockSyncOp({ id: 'op-456' });
+      await expectAsync(adapter.uploadOps([op2], 'client1')).toBeRejectedWithError(
+        UploadRevToMatchMismatchAPIError,
+      );
+      expect(mockProvider.uploadFile).not.toHaveBeenCalled();
+
+      // The refused read must not make the rev pre-check skip the next download.
+      mockProvider.getFileRev.and.callFake(async (path) => {
+        if (path === FILE_BASED_SYNC_CONSTANTS.SYNC_FILE) return { rev: 'rev-3' };
+        throw new RemoteFileNotFoundAPIError(path);
+      });
+      const download = await adapter.downloadOps(2);
+      expect(download.ops.map(({ op }) => op.id)).toEqual(['other-op']);
+      await adapter.setLastServerSeq(download.latestSeq);
+      mockProvider.uploadFile.and.returnValue(Promise.resolve({ rev: 'rev-4' }));
       const result = await adapter.uploadOps([op2], 'client1');
 
-      // Should succeed (not throw)
       expect(result.results.length).toBe(1);
       expect(result.results[0].accepted).toBe(true);
 
-      // Should NOT return piggybacked ops (piggybacking removed)
       expect(result.newOps).toBeUndefined();
     });
+
+    for (const rev of ['remote-rev', '']) {
+      it(`should require applied data or a reliable revision before retrying (${JSON.stringify(rev)})`, async () => {
+        mockProvider.id = SyncProviderId.OneDrive;
+        adapter = service.createAdapter(mockProvider, mockCfg, mockEncryptKey);
+        mockProvider.downloadFile.and.resolveTo({
+          dataStr: addPrefix(
+            createMockSyncData({
+              vectorClock: { remote: 1 },
+              recentOps: [
+                {
+                  id: 'remote-op',
+                  c: 'remote',
+                  a: '[Task] Add',
+                  o: 'CRT',
+                  e: 'TASK',
+                  d: 'remote-task',
+                  p: { task: { id: 'remote-task' } },
+                  v: { remote: 1 },
+                  t: Date.now(),
+                  s: 1,
+                },
+              ],
+            }),
+          ),
+          rev,
+        });
+        // OneDrive can omit a read eTag, but a successful upload requires one.
+        mockProvider.uploadFile.and.resolveTo({ rev: 'uploaded-rev' });
+        const op = createMockSyncOp();
+
+        await expectAsync(adapter.uploadOps([op], 'client1')).toBeRejectedWithError(
+          UploadRevToMatchMismatchAPIError,
+        );
+        expect(mockProvider.uploadFile).not.toHaveBeenCalled();
+        const downloaded = await adapter.downloadOps(0);
+        // A migration probe downloads too, but its cache has not been applied.
+        await expectAsync(adapter.uploadOps([op], 'client1')).toBeRejectedWithError(
+          UploadRevToMatchMismatchAPIError,
+        );
+        expect(mockProvider.uploadFile).not.toHaveBeenCalled();
+        await adapter.setLastServerSeq(downloaded.latestSeq);
+        service['_syncCycleCache'].clear();
+
+        // OneDrive's missing eTag becomes ''. It cannot prove unchanged content
+        // after cache expiry, even when it equals the recorded revision.
+        // A normal download supplies the cache for the retry.
+        if (!rev) {
+          await expectAsync(adapter.uploadOps([op], 'client1')).toBeRejectedWithError(
+            UploadRevToMatchMismatchAPIError,
+          );
+          expect(mockProvider.uploadFile).not.toHaveBeenCalled();
+          const next = await adapter.downloadOps(downloaded.latestSeq);
+          await adapter.setLastServerSeq(next.latestSeq);
+        } else {
+          // An unchanged non-empty revision can still use the cheap pre-check.
+          mockProvider.getFileRev.and.callFake(async (path) => {
+            if (path === FILE_BASED_SYNC_CONSTANTS.SYNC_FILE) return { rev };
+            throw new RemoteFileNotFoundAPIError(path);
+          });
+          mockProvider.downloadFile.calls.reset();
+          expect((await adapter.downloadOps(downloaded.latestSeq)).ops).toEqual([]);
+          expect(mockProvider.downloadFile).not.toHaveBeenCalled();
+        }
+        expect((await adapter.uploadOps([op], 'client1')).results[0].accepted).toBe(true);
+      });
+    }
 
     it('should merge vector clocks from all ops', async () => {
       mockProvider.downloadFile.and.throwError(
@@ -592,6 +675,12 @@ describe('FileBasedSyncAdapterService', () => {
       const op = createMockSyncOp();
       await adapter.uploadOps([op], 'client1');
 
+      const primaryWrite = mockProvider.uploadFile.calls
+        .allArgs()
+        .find(([path]) => path === FILE_BASED_SYNC_CONSTANTS.SYNC_FILE)!;
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({ dataStr: primaryWrite[1], rev: 'rev-2' }),
+      );
       mockProvider.downloadFile.calls.reset();
 
       // Another upload should re-download since cache was cleared
@@ -894,6 +983,47 @@ describe('FileBasedSyncAdapterService', () => {
       expect(result.ops.some((o) => o.op.id === 'op-600')).toBe(true);
     });
 
+    // #10119: the download service compares serverSeq with the persisted cursor
+    // (the syncVersion of the last processed file), so it must be the version
+    // the op was written at, not its array position. A legacy op without `sv`
+    // gets the file's syncVersion, an upper bound that never over-filters.
+    it('exposes each op sv as serverSeq, legacy ops get the file syncVersion (#10119)', async () => {
+      const compactOp = (id: string, sv?: number): Record<string, unknown> => ({
+        id,
+        c: 'client1',
+        a: 'HA',
+        o: 'ADD',
+        e: 'TASK',
+        d: `task-${id}`,
+        v: { client1: 1 },
+        t: Date.now(),
+        s: 1,
+        p: {},
+        ...(sv === undefined ? {} : { sv }),
+      });
+      const syncData = createMockSyncData({
+        syncVersion: 12,
+        recentOps: [
+          compactOp('legacy'),
+          compactOp('op-a', 10),
+          compactOp('op-b', 10),
+          compactOp('op-c', 12),
+        ] as never,
+      });
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({ dataStr: addPrefix(syncData), rev: 'rev-1' }),
+      );
+
+      const result = await adapter.downloadOps(11, 'client2');
+
+      expect(result.ops.map((o) => [o.op.id, o.serverSeq])).toEqual([
+        ['legacy', 12],
+        ['op-a', 10],
+        ['op-b', 10],
+        ['op-c', 12],
+      ]);
+    });
+
     it('should throw SyncDataCorruptedError for wrong file version', async () => {
       const badSyncData = createMockSyncData();
       (badSyncData as any).version = 1; // Wrong version
@@ -1168,6 +1298,157 @@ describe('FileBasedSyncAdapterService', () => {
 
         expect(result.gapDetected).toBe(true);
       });
+
+      it('flags a gap when a tail op masks a USE_LOCAL replacement (#9170)', async () => {
+        // Reproduces #9170: client A syncs up to syncVersion 3. Client B then
+        // chooses "Keep local" (USE_LOCAL), which replaces the remote snapshot
+        // and resets syncVersion to 1 with an unrelated vector clock. Before A's
+        // next download, B uploads two more tail ops, which walk syncVersion
+        // back up to exactly the value A already expects (3) and leave
+        // recentOps non-empty again. All three syncVersion/recentOps-based
+        // heuristics miss this, so A must never apply the tail alone without
+        // first rehydrating B's replacement snapshot.
+        const compactOp = (
+          id: string,
+          clock: Record<string, number>,
+          syncVersion: number,
+        ): FileBasedSyncData['recentOps'][number] => ({
+          id,
+          c: 'client-b',
+          a: 'HA',
+          o: 'ADD',
+          e: 'TASK',
+          d: id,
+          v: clock,
+          t: Date.now(),
+          s: 1,
+          p: {},
+          sv: syncVersion,
+        });
+
+        // Both clients once synced at {clientA: 1, clientB: 1}. A then
+        // uploaded two more ops and established its baseline at syncVersion 3.
+        const established = createMockSyncData({
+          syncVersion: 3,
+          vectorClock: { clientA: 3, clientB: 1 },
+          clientId: 'client-a',
+          recentOps: [],
+        });
+        mockProvider.downloadFile.and.returnValue(
+          Promise.resolve({ dataStr: addPrefix(established), rev: 'rev-1' }),
+        );
+        await adapter.downloadOps(0, 'client-a');
+        await adapter.setLastServerSeq(3);
+
+        // B, still on the shared ancestor plus its own offline edits, replaces
+        // the remote with its own state (USE_LOCAL) and then uploads two tail
+        // ops, landing syncVersion back at 3. Its clock descends from the
+        // shared ancestor but not from A's last two ops, so it is CONCURRENT
+        // with A's baseline — a genuine lineage break.
+        const replacedWithTail = createMockSyncData({
+          syncVersion: 3,
+          vectorClock: { clientA: 1, clientB: 4 },
+          clientId: 'client-b',
+          recentOps: [compactOp('op-b3', { clientA: 1, clientB: 4 }, 3)],
+          oldestOpSyncVersion: 3,
+          state: { tasks: [{ id: 'task-b' }] },
+        });
+        mockProvider.downloadFile.and.returnValue(
+          Promise.resolve({ dataStr: addPrefix(replacedWithTail), rev: 'rev-2' }),
+        );
+
+        const result = await adapter.downloadOps(3, 'client-a');
+
+        // Must be flagged as a gap so the caller re-hydrates the replacement
+        // snapshot instead of applying the tail op on top of stale local state.
+        expect(result.gapDetected).toBe(true);
+      });
+
+      it('records a clock on the first commit after upgrading from state without lastSeenClocks (#9170)', async () => {
+        // State persisted by a pre-#9170 client: cursor and expected version, but
+        // no last-seen clock (it was kept in memory only).
+        localStorage.setItem(
+          FILE_BASED_SYNC_CONSTANTS.SYNC_VERSION_STORAGE_KEY_PREFIX + 'state',
+          JSON.stringify({
+            syncVersions: { [SyncProviderId.WebDAV]: 3 },
+            seqCounters: { [SyncProviderId.WebDAV]: 3 },
+          }),
+        );
+        TestBed.resetTestingModule();
+        TestBed.configureTestingModule({
+          providers: [
+            FileBasedSyncAdapterService,
+            { provide: ArchiveDbAdapter, useValue: mockArchiveDbAdapter },
+            { provide: StateSnapshotService, useValue: mockStateSnapshotService },
+            { provide: SnackService, useValue: mockSnackService },
+            {
+              provide: GlobalConfigService,
+              useValue: { sync: () => ({ isUseSplitSyncFiles: false }) },
+            },
+          ],
+        });
+        const upgraded = TestBed.inject(FileBasedSyncAdapterService).createAdapter(
+          mockProvider,
+          mockCfg,
+          mockEncryptKey,
+        );
+
+        // A new-version client wrote the snapshot at {clientA:3, clientB:1}, which
+        // this client already holds, then appended one ordinary tail op. Without a
+        // recorded clock the snapshot base cannot be judged, so it is not a gap
+        // (#10258); the first commit records the clock the later checks rely on.
+        const tailOp = (sv: number): FileBasedSyncData['recentOps'][number] => ({
+          id: `op-b${sv}`,
+          c: 'client-b',
+          a: 'HA',
+          o: 'ADD',
+          e: 'TASK',
+          d: `task-b${sv}`,
+          v: { clientA: 3, clientB: sv - 2 },
+          t: Date.now(),
+          s: 1,
+          p: {},
+          sv,
+        });
+        const remote = createMockSyncData({
+          syncVersion: 4,
+          vectorClock: { clientA: 3, clientB: 2 },
+          snapshotBaseClock: { clientA: 3, clientB: 1 },
+          clientId: 'client-b',
+          recentOps: [tailOp(4)],
+          oldestOpSyncVersion: 4,
+        });
+        mockProvider.downloadFile.and.returnValue(
+          Promise.resolve({ dataStr: addPrefix(remote), rev: 'rev-4' }),
+        );
+
+        const first = await upgraded.downloadOps(3, 'client-a');
+        expect(first.gapDetected).toBe(false);
+        expect(first.ops.map((o) => o.op.id)).toEqual(['op-b4']);
+        await upgraded.setLastServerSeq(4);
+
+        expect((await upgraded.downloadOps(4, 'client-a')).gapDetected).toBe(false);
+
+        // Later appends keep the base clock, which the committed clock now covers.
+        const appended = createMockSyncData({
+          ...remote,
+          syncVersion: 5,
+          vectorClock: { clientA: 3, clientB: 3 },
+          recentOps: [tailOp(4), tailOp(5)],
+        });
+        mockProvider.downloadFile.and.returnValue(
+          Promise.resolve({ dataStr: addPrefix(appended), rev: 'rev-5' }),
+        );
+        expect((await upgraded.downloadOps(4, 'client-a')).gapDetected).toBe(false);
+        await upgraded.setLastServerSeq(5);
+        expect(
+          JSON.parse(
+            localStorage.getItem(
+              FILE_BASED_SYNC_CONSTANTS.SYNC_VERSION_STORAGE_KEY_PREFIX + 'state',
+            ) as string,
+          ).lastSeenClocks[SyncProviderId.WebDAV],
+        ).toEqual({ clientA: 3, clientB: 3 });
+      });
     });
 
     it('should set seq counter to syncVersion after snapshot upload', async () => {
@@ -1268,6 +1549,39 @@ describe('FileBasedSyncAdapterService', () => {
       expect(order.indexOf(FILE_BASED_SYNC_CONSTANTS.SYNC_FILE)).toBeLessThan(
         order.indexOf(FILE_BASED_SYNC_CONSTANTS.BACKUP_FILE),
       );
+    });
+
+    it('stays conditional on the base rev after refusing to append to an unseen replacement (#9170)', async () => {
+      await seedBaseRev('rev-1');
+      // Another client replaced the remote after this client's last sync.
+      (
+        service as unknown as { _syncCycleCache: Map<string, unknown> }
+      )._syncCycleCache.clear();
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({
+          dataStr: addPrefix(
+            createMockSyncData({
+              syncVersion: 1,
+              vectorClock: { client2: 5 },
+              snapshotBaseClock: { client2: 5 },
+              clientId: 'client2',
+            }),
+          ),
+          rev: 'rev-2',
+        }),
+      );
+      await expectAsync(
+        adapter.uploadOps([createMockSyncOp()], 'client1'),
+      ).toBeRejectedWithError(UploadRevToMatchMismatchAPIError);
+      // Refused before anything is written: no .bak, no primary.
+      expect(mockProvider.uploadFile).not.toHaveBeenCalled();
+
+      const writes = captureWrites();
+      await uploadRepair();
+
+      // A null base would let providers that resolve it to the current rev
+      // (Dropbox) overwrite the replacement unconditionally.
+      expect(primaryOf(writes)[0].rev).toBe('rev-1');
     });
 
     it('rejects as REPAIR_STALE — leaving .bak untouched — when the conditional write loses to a concurrent upload', async () => {
@@ -1880,23 +2194,6 @@ describe('FileBasedSyncAdapterService', () => {
     });
 
     it('should NOT detect gap when own client uploads snapshot (with excludeClient)', async () => {
-      // This test verifies false positive prevention using clientId-based detection.
-      // Scenario:
-      // 1. Client A uploads a snapshot: syncVersion=1, recentOps=[], clientId=client-a
-      // 2. Client A immediately downloads with excludeClient='client-a'
-      // Expected: Should NOT detect gap because snapshot.clientId === excludeClient
-
-      // Step 1: Upload snapshot as client-a
-      const snapshotData = createMockSyncData({
-        syncVersion: 1,
-        clientId: 'client-a',
-        recentOps: [],
-        state: { tasks: [] },
-      });
-
-      mockProvider.downloadFile.and.returnValue(
-        Promise.resolve({ dataStr: addPrefix(snapshotData), rev: 'rev-1' }),
-      );
       mockProvider.uploadFile.and.returnValue(Promise.resolve({ rev: 'rev-2' }));
 
       await adapter.uploadSnapshot(
@@ -1908,16 +2205,19 @@ describe('FileBasedSyncAdapterService', () => {
         undefined,
         'test-op-id-snapshot',
       );
+      // The server returns the snapshot and revision this client just wrote.
+      const primaryWrite = mockProvider.uploadFile.calls
+        .allArgs()
+        .find(([path]) => path === FILE_BASED_SYNC_CONSTANTS.SYNC_FILE)!;
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({ dataStr: primaryWrite[1], rev: 'rev-2' }),
+      );
 
       const seqAfterUpload = await adapter.getLastServerSeq();
       expect(seqAfterUpload).toBe(1);
 
-      // Step 2: Download with excludeClient='client-a' (same client that uploaded)
       const result = await adapter.downloadOps(1, 'client-a');
 
-      // Should NOT detect gap because:
-      // - syncData.clientId ('client-a') === excludeClient ('client-a')
-      // - This means we just uploaded, so no gap
       expect(result.gapDetected).toBe(false);
       expect(result.snapshotState).toBeUndefined(); // No snapshot state when sinceSeq > 0
     });
@@ -2541,7 +2841,8 @@ describe('FileBasedSyncAdapterService', () => {
       });
 
       // Populate the sync-cycle cache (mirrors a real download→upload cycle).
-      await adapter.downloadOps(0);
+      const downloaded = await adapter.downloadOps(0);
+      await adapter.setLastServerSeq(downloaded.latestSeq);
 
       const op = createMockSyncOp();
       await adapter.uploadOps([op], 'client1');
@@ -2637,6 +2938,32 @@ describe('FileBasedSyncAdapterService', () => {
       expect(result.ops.length).toBe(1);
       expect(result.latestSeq).toBe(4);
       expect(mockSnackService.open).toHaveBeenCalled();
+    });
+
+    it('(b) never recovers over a primary written in a NEWER format (#8764)', async () => {
+      // A newer app version's file is not corrupt. Adopting the older .bak would
+      // make this cycle's upload overwrite ("heal") the newer file.
+      const newerPrimary = {
+        ...createMockSyncData(),
+        version: FILE_BASED_SYNC_CONSTANTS.FILE_VERSION + 2,
+      };
+      mockProvider.downloadFile.and.callFake((path: string) => {
+        if (path === FILE_BASED_SYNC_CONSTANTS.BACKUP_FILE) {
+          return Promise.resolve({
+            dataStr: addPrefix(createMockSyncData()),
+            rev: 'bak-rev-older',
+          });
+        }
+        return Promise.resolve({ dataStr: addPrefix(newerPrimary), rev: 'newer-rev' });
+      });
+
+      await expectAsync(adapter.downloadOps(0)).toBeRejectedWith(
+        jasmine.objectContaining({ isRemoteNewer: true }),
+      );
+      expect(mockProvider.downloadFile).not.toHaveBeenCalledWith(
+        FILE_BASED_SYNC_CONSTANTS.BACKUP_FILE,
+      );
+      expect(mockSnackService.open).not.toHaveBeenCalled();
     });
 
     it('(b) rethrows the original corruption error when no usable backup exists', async () => {
@@ -2765,7 +3092,10 @@ describe('FileBasedSyncAdapterService', () => {
       // Regression for the self-perpetuating degraded state: recovery must seed the
       // cache with the CORRUPT PRIMARY rev, not the .bak rev, so the follow-up
       // conditional upload matches sync-data.json and overwrites (heals) it.
-      const backupData = createMockSyncData({ syncVersion: 2 });
+      const backupData = createMockSyncData({
+        syncVersion: 2,
+        recentOps: [compactOp('recovered-op') as never],
+      });
       const CORRUPT_MAIN_REV = 'corrupt-main-rev-42';
       const undecodableMain =
         getSyncFilePrefix({ isCompress: true, isEncrypt: false, modelVersion: 2 }) +
@@ -2788,7 +3118,8 @@ describe('FileBasedSyncAdapterService', () => {
       );
 
       // Download recovers from .bak; a subsequent upload should heal the primary.
-      await adapter.downloadOps(0);
+      const downloaded = await adapter.downloadOps(0);
+      await adapter.setLastServerSeq(downloaded.latestSeq);
       await adapter.uploadOps([createMockSyncOp()], 'client1');
 
       expect(mainRevToMatch).toContain(CORRUPT_MAIN_REV);
@@ -2967,6 +3298,83 @@ describe('FileBasedSyncAdapterService', () => {
       expect(result.hasMore).toBe(false);
       expect(result.latestSeq).toBe(2);
       expect(result.gapDetected).toBeFalsy();
+    });
+
+    it('does not refuse uploads before a clock is recorded (#9170)', async () => {
+      const replaced = createMockSyncData({
+        syncVersion: 2,
+        vectorClock: { client2: 5 },
+        snapshotBaseClock: { client2: 5 },
+        clientId: 'client2',
+      });
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({ dataStr: addPrefix(replaced), rev: 'rev-1' }),
+      );
+      await adapter.downloadOps(0);
+      await adapter.setLastServerSeq(2);
+      // State persisted before last-seen clocks were: the rev is known, so the
+      // pre-check would skip every re-download a refusal relies on.
+      service['_lastSeenVectorClocks'].clear();
+      crossPollBoundary();
+      mockProvider.uploadFile.and.returnValue(Promise.resolve({ rev: 'rev-up' }));
+
+      await expectAsync(
+        adapter.uploadOps([createMockSyncOp()], 'client1'),
+      ).toBeResolved();
+    });
+
+    it('does not flag a snapshot base as a gap before a clock is recorded (#9170)', async () => {
+      const base = { client2: 5 };
+      const replaced = createMockSyncData({
+        syncVersion: 2,
+        vectorClock: base,
+        snapshotBaseClock: base,
+        clientId: 'client2',
+      });
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({ dataStr: addPrefix(replaced), rev: 'rev-1' }),
+      );
+      await adapter.downloadOps(0);
+      await adapter.setLastServerSeq(2);
+      // First sync after upgrading: persisted state predates last-seen clocks.
+      service['_lastSeenVectorClocks'].clear();
+      crossPollBoundary();
+
+      // An ordinary tail on top of that base. A gap would force a seq-0
+      // download, and with pending local ops a conflict dialog.
+      const tail = createMockSyncData({
+        syncVersion: 3,
+        vectorClock: { client2: 6 },
+        snapshotBaseClock: base,
+        clientId: 'client2',
+        recentOps: [
+          {
+            id: 'op-tail',
+            c: 'client2',
+            a: 'HA',
+            o: 'ADD',
+            e: 'TASK',
+            d: 'task-1',
+            v: { client2: 6 },
+            t: Date.now(),
+            s: 1,
+            p: { title: 'Task 1' },
+            sv: 3,
+          } as never,
+        ],
+      });
+      mockProvider.getFileRev.and.callFake(async (path: string) => {
+        if (path === FILE_BASED_SYNC_CONSTANTS.SYNC_FILE) return { rev: 'rev-2' };
+        throw new RemoteFileNotFoundAPIError('not found');
+      });
+      mockProvider.downloadFile.and.returnValue(
+        Promise.resolve({ dataStr: addPrefix(tail), rev: 'rev-2' }),
+      );
+
+      const result = await adapter.downloadOps(2);
+
+      expect(result.gapDetected).toBeFalsy();
+      expect(result.ops.map(({ op }) => op.id)).toEqual(['op-tail']);
     });
 
     it('(b) proceeds with the full download when the remote rev changed', async () => {
@@ -3375,6 +3783,25 @@ describe('FileBasedSyncAdapterService', () => {
       expect(uploadedPaths()).toContain(C.OPS_FILE);
     });
 
+    it('(a) never recovers over an ops file written in a NEWER format (#8764)', async () => {
+      const newerOpsFile = {
+        ...makeOpsFile({
+          syncVersion: 3,
+          recentOps: [],
+        }),
+        version: C.SPLIT_FILE_VERSION + 1,
+      };
+      routeDownloads({
+        [C.OPS_FILE]: addPrefix(newerOpsFile, 3),
+        [C.OPS_BACKUP_FILE]: addPrefix(makeOpsFile({ syncVersion: 2 }), 3),
+      });
+
+      await expectAsync(adapter.downloadOps(0)).toBeRejectedWith(
+        jasmine.objectContaining({ isRemoteNewer: true }),
+      );
+      expect(mockProvider.downloadFile).not.toHaveBeenCalledWith(C.OPS_BACKUP_FILE);
+    });
+
     it('(a) op-only download reads ONLY sync-ops.json (no sync-state.json fetch)', async () => {
       const opsFile = makeOpsFile({
         syncVersion: 5,
@@ -3458,6 +3885,30 @@ describe('FileBasedSyncAdapterService', () => {
       expect(result.ops.length).toBe(total);
       expect(result.hasMore).toBe(false);
       expect(result.ops.some((o) => o.op.id === 'op-600')).toBe(true);
+    });
+
+    // #10119: the download service compares serverSeq with the persisted cursor
+    // (the syncVersion of the last processed file), so it must be the version
+    // the op was written at, not its array position.
+    it('(a2b) split download exposes each op sv as serverSeq (#10119)', async () => {
+      const opsFile = makeOpsFile({
+        syncVersion: 9,
+        vectorClock: { client1: 3 },
+        recentOps: [
+          makeCompactOp({ id: 'legacy', v: { client1: 1 } }),
+          makeCompactOp({ id: 'op-a', v: { client1: 2 }, sv: 7 }),
+          makeCompactOp({ id: 'op-b', v: { client1: 3 }, sv: 9 }),
+        ],
+      });
+      routeDownloads({ [C.OPS_FILE]: addPrefix(opsFile, 3) });
+
+      const result = await adapter.downloadOps(9, 'client2');
+
+      expect(result.ops.map((o) => [o.op.id, o.serverSeq])).toEqual([
+        ['legacy', 9],
+        ['op-a', 7],
+        ['op-b', 9],
+      ]);
     });
 
     // (a3) SPAP-33: a short ops buffer (fewer than SPLIT_COMPACTION_THRESHOLD ops)
@@ -3643,18 +4094,31 @@ describe('FileBasedSyncAdapterService', () => {
     it('(b2) does NOT recompact on every op-bearing sync between the threshold and the cap', async () => {
       // Buffer sits between the trim target (1000) and the trigger (2000).
       const between = C.SPLIT_COMPACTION_THRESHOLD + 200;
-      let recentOps = Array.from({ length: between }, () => ({ sv: 1 }) as never);
+      let remoteOps = {
+        dataStr: addPrefix(
+          makeOpsFile({
+            syncVersion: 5,
+            recentOps: Array.from({ length: between }, () => ({ sv: 1 }) as never),
+          }),
+          3,
+        ),
+        rev: 'ops-5',
+      };
+      mockProvider.downloadFile.and.callFake(async (path: string) => {
+        if (path === C.OPS_FILE) return remoteOps;
+        throw new RemoteFileNotFoundAPIError(path);
+      });
+      let revision = 5;
+      mockProvider.uploadFile.and.callFake(async (path: string, dataStr: string) => {
+        const rev = `ops-${++revision}`;
+        if (path === C.OPS_FILE) remoteOps = { dataStr, rev };
+        return { rev };
+      });
 
       // Two consecutive op-bearing syncs, each appending one op (1201, then 1202) —
       // both still under MAX_RECENT_OPS, so neither may rebuild the snapshot.
       for (let sync = 0; sync < 2; sync++) {
-        const opsFile = makeOpsFile({ syncVersion: 5 + sync, recentOps });
-        routeDownloads({
-          [C.OPS_FILE]: addPrefix(opsFile, 3),
-          [C.STATE_FILE]: addPrefix(makeStateFile({ syncVersion: 1 }), 3),
-        });
-        await adapter.uploadOps([createMockSyncOp()], 'client1');
-        recentOps = [...recentOps, { sv: 1 } as never];
+        await adapter.uploadOps([createMockSyncOp({ id: `op-${sync}` })], 'client1');
       }
 
       // At most one snapshot build across both syncs — ideally zero here.
@@ -3698,6 +4162,58 @@ describe('FileBasedSyncAdapterService', () => {
       // No throw, no conflict — recovered the referenced snapshot from .bak.
       expect(res.snapshotState).toBeDefined();
       expect((res.snapshotState as { tasks: string[] }).tasks).toEqual(['from-bak']);
+    });
+
+    it('(c) does not adopt a v3 backup over a v4 state file', async () => {
+      routeDownloads({
+        [C.OPS_FILE]: addPrefix(makeOpsFile(), 3),
+        [C.STATE_FILE]: addPrefix({ ...makeStateFile(), version: 4 }, 4),
+        [C.STATE_BACKUP_FILE]: addPrefix(makeStateFile(), 3),
+      });
+
+      await expectAsync(adapter.downloadOps(0, 'client2')).toBeRejectedWith(
+        jasmine.objectContaining({ isRemoteNewer: true }),
+      );
+      expect(mockProvider.downloadFile).not.toHaveBeenCalledWith(C.STATE_BACKUP_FILE);
+    });
+
+    it('(c) does not adopt a v3 fixed state file over a v4 immutable snapshot', async () => {
+      const genFile = 'sync-state__1__future.json';
+      routeDownloads({
+        [C.OPS_FILE]: addPrefix(
+          makeOpsFile({
+            snapshotRef: {
+              syncVersion: 1,
+              vectorClock: { client1: 1 },
+              rev: 'state-rev-1',
+              file: genFile,
+            },
+          }),
+          3,
+        ),
+        [genFile]: addPrefix({ ...makeStateFile(), version: 4 }, 4),
+        [C.STATE_FILE]: addPrefix(makeStateFile(), 3),
+      });
+
+      await expectAsync(adapter.downloadOps(0, 'client2')).toBeRejectedWith(
+        jasmine.objectContaining({ isRemoteNewer: true }),
+      );
+      expect(mockProvider.downloadFile).not.toHaveBeenCalledWith(C.STATE_FILE);
+    });
+
+    it('(c) aborts compaction before overwriting a v4 fixed state file', async () => {
+      const recentOps = Array.from({ length: C.MAX_RECENT_OPS }, (_, i) =>
+        makeCompactOp({ id: `op-${i}`, sv: i + 1 }),
+      );
+      routeDownloads({
+        [C.OPS_FILE]: addPrefix(makeOpsFile({ syncVersion: 2000, recentOps }), 3),
+        [C.STATE_FILE]: addPrefix({ ...makeStateFile(), version: 4 }, 4),
+      });
+
+      await expectAsync(
+        adapter.uploadOps([createMockSyncOp({ id: 'fresh-op' })], 'client1'),
+      ).toBeRejectedWith(jasmine.objectContaining({ isRemoteNewer: true }));
+      expect(mockProvider.uploadFile).not.toHaveBeenCalled();
     });
 
     it('(c) encrypted download rejects a plaintext state file without adopting its backup', async () => {
@@ -3874,9 +4390,11 @@ describe('FileBasedSyncAdapterService', () => {
     // (e) legacy v2 sync-data.json migrates in place: state+ops written, tombstone
     // over sync-data.json, .bak neutralized, sync-data.json NOT removed.
     it('(e) migrates legacy v2 sync-data.json to split format with a v3 tombstone', async () => {
+      const snapshotBaseClock = { client1: 4 };
       const legacy = createMockSyncData({
         syncVersion: 7,
         vectorClock: { client1: 7 },
+        snapshotBaseClock,
         recentOps: [],
         state: { tasks: ['legacy'] },
       });
@@ -3888,6 +4406,13 @@ describe('FileBasedSyncAdapterService', () => {
       await adapter.uploadOps([createMockSyncOp()], 'client1');
 
       const paths = uploadedPaths();
+      for (const [path, encoded] of mockProvider.uploadFile.calls.allArgs()) {
+        if (path === C.OPS_FILE) {
+          expect(parseWithPrefix(encoded as string).snapshotBaseClock).toEqual(
+            snapshotBaseClock,
+          );
+        }
+      }
       // A conditional pending marker is acquired first. State is then written,
       // followed by the legacy tombstone and the finalized ops commit point.
       const stateIdx = paths.indexOf(C.STATE_FILE);
