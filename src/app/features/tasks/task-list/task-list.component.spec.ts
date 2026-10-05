@@ -18,6 +18,8 @@ import { moveTaskInTodayList } from '../../work-context/store/work-context-meta.
 import { WorkContextType } from '../../work-context/work-context.model';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import { Task } from '../task.model';
+import { TaskOrderService } from '../task-order.service';
+import { TODAY_TAG } from '../../tag/tag.const';
 
 describe('TaskListComponent', () => {
   let component: TaskListComponent;
@@ -866,6 +868,38 @@ describe('TaskListComponent', () => {
           today: jasmine.any(String),
           doneOn: jasmine.any(Number),
           modified: jasmine.any(Number),
+        }),
+      );
+    });
+
+    // Today shows ranked tasks first wherever they sit in the stored order, so a
+    // ranked task above the drop slot says nothing about the stored position.
+    it('anchors a Today drop to the unranked task above it, skipping ranked tasks', async () => {
+      TestBed.inject(WorkContextService).activeWorkContextId = TODAY_TAG.id;
+      spyOn(TestBed.inject(TaskOrderService), 'index').and.returnValue({
+        rankById: { r1: 1 },
+        keyedByDay: {},
+      });
+      const list: ListData = {
+        listId: 'PARENT',
+        listModelId: 'UNDONE',
+        filteredTasks: [{ id: 'r1' }, { id: 'u1' }, { id: 'u2' }, { id: 'u3' }],
+      };
+
+      await component.drop(
+        dropEvent({
+          previous: list,
+          target: list,
+          dragged: { id: 'u3', parentId: null },
+          currentIndex: 1, // onto u1 -> lands right below the ranked r1
+        }),
+      );
+
+      expect(store.dispatch).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: moveTaskInTodayList.type,
+          taskId: 'u3',
+          afterTaskId: null,
         }),
       );
     });

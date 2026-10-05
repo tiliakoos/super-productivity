@@ -39,6 +39,7 @@ describe('workContext selectors', () => {
         [],
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
       expect(result).toEqual(
         jasmine.objectContaining({
@@ -108,10 +109,37 @@ describe('workContext selectors', () => {
         [],
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
 
       // Should filter out task3 (stale) and auto-add task2 (missing from order)
       expect(result.taskIds).toEqual(['task1', 'task2']);
+    });
+
+    // The Today page renders this list, so it must carry the day-order ranks.
+    it('should place ranked TODAY tasks first by rank and keep the stored order for the rest', () => {
+      const tasks = ['u1', 'r2', 'u2', 'r1'].map(
+        (id) =>
+          ({
+            id,
+            tagIds: [],
+            dueDay: todayStr,
+            subTaskIds: [],
+          }) as Partial<TaskCopy> as TaskCopy,
+      );
+
+      const result = selectActiveWorkContext.projector(
+        { activeId: TODAY_TAG.id, activeType: WorkContextType.TAG } as any,
+        fakeEntityStateFromArray([]),
+        fakeEntityStateFromArray([{ ...TODAY_TAG, taskIds: ['u1', 'r2', 'u2', 'r1'] }]),
+        fakeEntityStateFromArray(tasks).entities,
+        [],
+        todayStr,
+        0,
+        { rankById: { r1: 1, r2: 2 }, keyedByDay: {} },
+      );
+
+      expect(result.taskIds).toEqual(['r1', 'r2', 'u1', 'u2']);
     });
 
     describe('with startOfNextDayDiff offset', () => {
@@ -143,6 +171,7 @@ describe('workContext selectors', () => {
           [],
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
 
         expect(result.taskIds).toEqual(['task1']);
@@ -193,6 +222,7 @@ describe('workContext selectors', () => {
           [],
           offsetTodayStr,
           FOUR_HOURS_MS,
+          EMPTY_TASK_ORDER_INDEX,
         );
 
         // task-not-today excluded (5 AM - 4h = 1 AM Feb 16 != Feb 15)
@@ -216,6 +246,7 @@ describe('workContext selectors', () => {
         [],
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
 
       expect(result.taskIds).toEqual(['active']);
@@ -238,6 +269,7 @@ describe('workContext selectors', () => {
         [],
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
 
       expect(result.icon).toBe('rocket');
@@ -259,6 +291,7 @@ describe('workContext selectors', () => {
         [],
         todayStr,
         0,
+        EMPTY_TASK_ORDER_INDEX,
       );
 
       expect(result.icon).toBeNull();

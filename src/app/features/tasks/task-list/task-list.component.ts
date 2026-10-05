@@ -514,6 +514,16 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
       newIds: newOrderedIds,
     });
 
+    const isTodayList =
+      this._workContextService.activeWorkContextId === TODAY_TAG.id &&
+      targetListData.listModelId === 'UNDONE';
+    // Today shows ranked tasks first wherever they are stored, so only the
+    // unranked ones can anchor the stored position.
+    const rankById = isTodayList ? this._taskOrder.index().rankById : {};
+    const anchorIds = newOrderedIds.filter(
+      (id) => id === draggedTask.id || rankById[id] === undefined,
+    );
+
     this.dropListService.blockAniTrigger$.next();
     this._move(
       draggedTask.id,
@@ -521,13 +531,10 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
       targetListData.listModelId,
       srcListData.listId,
       targetListData.listId,
-      newOrderedIds,
+      anchorIds,
       draggedTask as TaskWithSubTasks,
     );
-    if (
-      this._workContextService.activeWorkContextId === TODAY_TAG.id &&
-      targetListData.listModelId === 'UNDONE'
-    ) {
+    if (isTodayList) {
       this._taskOrder.setRankFromPosition(draggedTask as TaskWithSubTasks, newOrderedIds);
     }
 

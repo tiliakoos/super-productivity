@@ -152,6 +152,7 @@ export const selectActiveWorkContext = createSelector(
   selectNoteTodayOrder,
   selectTodayStr,
   selectStartOfNextDayDiffMs,
+  selectTaskOrderIndex,
   (
     { activeId, activeType },
     projectState,
@@ -160,6 +161,7 @@ export const selectActiveWorkContext = createSelector(
     todayOrder,
     todayStr,
     startOfNextDayDiffMs,
+    orderIndex,
   ): WorkContext => {
     if (activeType === WorkContextType.TAG) {
       const tag = selectTagById.projector(tagState, { id: activeId });
@@ -173,7 +175,7 @@ export const selectActiveWorkContext = createSelector(
               activeTaskEntities,
               todayStr,
               startOfNextDayDiffMs,
-            )
+            ).sort(compareByDayRank(orderIndex.rankById))
           : computeOrderedTaskIdsForTag(activeId, tag, activeTaskEntities);
 
       return {
