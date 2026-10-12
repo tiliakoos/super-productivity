@@ -119,10 +119,14 @@ task-priority-indicator {
 // way the isSelected / isCurrent rules are, so it can never reach a nested
 // sub-task row, and keyed on the data-priority host attribute. Only the resting
 // surface is tinted: selection, the current task and done rows keep their own.
+// Older priorities are stored as words, newer ones as levels 1-3.
 $priority-tints: (
   'high': var(--color-danger),
+  '3': var(--color-danger),
   'medium': var(--color-warning),
+  '2': var(--color-warning),
   'low': var(--c-primary),
+  '1': var(--c-primary),
 );
 
 @each $priority, $color in $priority-tints {
@@ -456,13 +460,16 @@ done-toggle {
   position: relative;
 }
 
-// Overdue indicator = the schedule icon itself, in the danger color. Driven by
-// the semantic :host.isOverdue host state rather than Material's `color="warn"`
-// modifier class, so the cue is decoupled from Material's theming internals and
-// reads the same across light/dark/custom themes. !important wins over the
-// Material icon-color token.
-:host.isOverdue .schedule-btn mat-icon {
-  color: var(--c-warn) !important;
+// Only overdue schedules are colored; all other dates keep the default color.
+.schedule-btn[data-scheduled-date-color='overdue'] {
+  mat-icon {
+    // The overdue state takes precedence over Material's icon-color token.
+    color: var(--c-warn) !important;
+  }
+
+  .time-badge {
+    color: var(--c-warn);
+  }
 }
 
 // Time conflict indicator: a danger "!" shown next to the schedule control,
