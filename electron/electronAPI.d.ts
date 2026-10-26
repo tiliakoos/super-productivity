@@ -20,8 +20,14 @@ import { PluginNodeExecutionElectronApi } from './shared-with-frontend/plugin-no
 import {
   LocalRestApiRequestPayload,
   LocalRestApiResponsePayload,
+  LocalRestApiState,
 } from './shared-with-frontend/local-rest-api.model';
 import { ElectronDistChannel } from './shared-with-frontend/get-dist-channel';
+import {
+  AssistantAccessCredentialResult,
+  AssistantAccessScope,
+  AssistantAccessState,
+} from './shared-with-frontend/assistant-access.model';
 import { JiraElectronApi } from './shared-with-frontend/jira-request.model';
 import { TrayPopoverSnapshot } from './shared-with-frontend/tray-popover.model';
 
@@ -236,6 +242,7 @@ export interface ElectronAPI {
     progress: number;
     progressBarMode: 'normal' | 'paused' | 'none';
   }): void;
+  setDueTaskBadge(count: number, iconDataUrl?: string): void;
 
   sendAppSettingsToElectron(globalCfg: GlobalConfigState): void;
 
@@ -282,4 +289,10 @@ export interface ElectronAPI {
   sendLocalRestApiResponse(payload: LocalRestApiResponsePayload): void;
   getLocalRestApiToken(): Promise<string>;
   regenerateLocalRestApiToken(): Promise<string>;
+  getLocalRestApiState(): Promise<LocalRestApiState>;
+  setLocalRestApiEnabled(isEnabled: boolean): Promise<LocalRestApiState>;
+  getAssistantAccessState(): Promise<AssistantAccessState>;
+  setAssistantAccessEnabled(isEnabled: boolean): Promise<AssistantAccessState>;
+  setAssistantAccessScopes(scopes: AssistantAccessScope[]): Promise<AssistantAccessState>;
+  rotateAssistantAccessCredential(): Promise<AssistantAccessCredentialResult>;
 }

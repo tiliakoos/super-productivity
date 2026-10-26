@@ -1,19 +1,36 @@
 import { inject, Injectable } from '@angular/core';
 import { createEffect, ofType } from '@ngrx/effects';
+import { combineLatest } from 'rxjs';
+import { selectTaskSchedulingSnapshot } from './task.selectors';
+import {
+  selectTodayStr,
+  selectStartOfNextDayDiffMs,
+} from '../../../root-store/app-state/app-state.selectors';
+import { countDueTasks } from '../util/count-due-tasks';
+import { createDueTaskBadgeIcon } from '../util/create-due-task-badge-icon';
+import { IS_ELECTRON_TOKEN } from '../../../app.constants';
+import { skipDuringSyncWindow } from '../../../util/skip-during-sync-window.operator';
+import { HydrationStateService } from '../../../op-log/apply/hydration-state.service';
+import { SyncTriggerService } from '../../../imex/sync/sync-trigger.service';
 import { setCurrentTask, unsetCurrentTask } from './task.actions';
 import { select, Store } from '@ngrx/store';
 import {
+  distinctUntilChanged,
   filter,
+  map,
+  skipWhile,
   startWith,
   take,
   tap,
   throttleTime,
   withLatestFrom,
   combineLatestWith,
-  distinctUntilChanged,
-  map,
 } from 'rxjs/operators';
-import { selectCurrentTask, selectTaskEntities } from './task.selectors';
+import {
+  selectCurrentTask,
+  selectCurrentTaskId,
+  selectTaskEntities,
+} from './task.selectors';
 import { selectTodayTaskIds } from '../../work-context/store/work-context.selectors';
 import { selectAllProjects } from '../../project/store/project.selectors';
 import { GlobalConfigService } from '../../config/global-config.service';
@@ -55,6 +72,9 @@ export class TaskElectronEffects {
   private _dateService = inject(DateService);
   private _navigateToTaskService = inject(NavigateToTaskService);
   private _translateService = inject(TranslateService);
+  private _hydrationState = inject(HydrationStateService);
+  private _syncTrigger = inject(SyncTriggerService);
+  private _isElectron = inject(IS_ELECTRON_TOKEN);
 
   // -----------------------------------------------------------------------------------
   // NOTE: IS_ELECTRON checks not necessary, since we check before importing this module
@@ -176,6 +196,41 @@ export class TaskElectronEffects {
     { dispatch: false },
   );
 
+  syncDueTaskBadge$ = createEffect(
+    () =>
+      combineLatest([
+        this._store$.select(selectTaskSchedulingSnapshot),
+        this._store$.select(selectTodayStr),
+        this._store$.select(selectStartOfNextDayDiffMs),
+        this._configService.misc$,
+        // Re-evaluate the latest count when the window opens, even if the
+        // last task emission was suppressed during hydration/remote apply.
+        this._hydrationState.isInSyncWindow$,
+        this._syncTrigger.initialSyncGateOpen$,
+      ]).pipe(
+        skipDuringSyncWindow(),
+        map(([tasks, today, dayOffset, misc]) =>
+          misc.isShowDueTaskBadge && today
+            ? countDueTasks(tasks, today, dayOffset ?? 0)
+            : 0,
+        ),
+        distinctUntilChanged(),
+        // Opt-in: until a badge was ever shown there is nothing to clear, so
+        // users who never enabled it don't touch the taskbar/dock at all.
+        skipWhile((count) => count === 0),
+        tap((count) => {
+          if (this._isElectron) {
+            const iconDataUrl =
+              count && !window.ea.isMacOS() && !window.ea.isLinux()
+                ? createDueTaskBadgeIcon(count)
+                : undefined;
+            window.ea.setDueTaskBadge(count, iconDataUrl);
+          }
+        }),
+      ),
+    { dispatch: false },
+  );
+
   taskChangeElectron$ = createEffect(
     () =>
       this._actions$.pipe(
@@ -254,6 +309,11 @@ export class TaskElectronEffects {
     () =>
       this._actions$.pipe(
         ofType(TimeTrackingActions.addTimeSpent),
+        // The bar shows the tracked task's progress; time added to any other
+        // task (e.g. back-filled via the Local REST API) must not drive it.
+        withLatestFrom(this._store$.select(selectCurrentTaskId)),
+        filter(([{ task }, currentTaskId]) => task.id === currentTaskId),
+        map(([action]) => action),
         // The OS taskbar progress bar moves imperceptibly per second; throttling
         // collapses 1 IPC/sec into ~1 IPC/3s. Leading+trailing keeps the first
         // tick after start instant and the final value at the end of a window.

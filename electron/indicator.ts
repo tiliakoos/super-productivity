@@ -218,6 +218,10 @@ const hideTrayPopover = (): void => {
   if (trayPopover && !trayPopover.isDestroyed()) trayPopover.hide();
 };
 
+export const destroyTrayPopover = (): void => {
+  if (trayPopover && !trayPopover.isDestroyed()) trayPopover.destroy();
+};
+
 const positionTrayPopover = (tr: Tray): void => {
   if (!trayPopover || trayPopover.isDestroyed()) return;
   const { x, y, height } = tr.getBounds();

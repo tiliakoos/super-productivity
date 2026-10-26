@@ -59,7 +59,6 @@ import { WorkContextService } from '../features/work-context/work-context.servic
 import { ProjectService } from '../features/project/project.service';
 import { INBOX_PROJECT } from '../features/project/project.const';
 import { TagService } from '../features/tag/tag.service';
-import typia from 'typia';
 import { distinctUntilChanged, first, map, take, timeout } from 'rxjs/operators';
 import { firstValueFrom } from 'rxjs';
 import { selectProjectFeatureState } from '../features/project/store/project.selectors';
@@ -67,6 +66,7 @@ import { selectNoteFeatureState } from '../features/note/store/note.reducer';
 import { selectTagFeatureState } from '../features/tag/store/tag.reducer';
 import { selectTaskByIdWithSubTaskData } from '../features/tasks/store/task.selectors';
 import { PluginUserPersistenceService } from './plugin-user-persistence.service';
+import { listPluginDataKeys, loadPluginPersistedData } from './plugin-data-reader';
 import { PluginConfigService } from './plugin-config.service';
 import { TaskArchiveService } from '../features/archive/task-archive.service';
 import { Router } from '@angular/router';
@@ -92,15 +92,13 @@ import { PluginSecretService } from './secret/plugin-secret.service';
 import { ISSUE_PROVIDER_TYPES } from '../features/issue/issue.const';
 import { PluginService } from './plugin.service';
 import { PluginI18nService } from './plugin-i18n.service';
+import { pluginAssert } from './plugin-bridge-asserts';
 import { PluginTaskContextMenuRegistryService } from './plugin-task-context-menu-registry.service';
 import { formatDateForPlugin } from './plugin-i18n-date.util';
 
-/**
- * Relational fields `updateTask` refuses: they are applied to the store as
- * plain values, so writing them corrupts the parent<->child links rather than
- * moving a task. Mirrors `REJECTED_TASK_FIELDS` in the local REST API.
- */
-const REJECTED_UPDATE_FIELDS = ['parentId', 'subTaskIds'] as const;
+// Relational fields corrupt parent<->child links when applied as plain values (mirrors
+// `REJECTED_TASK_FIELDS` in the local REST API); `wontDoOn` isn't in the plugin API yet.
+const REJECTED_UPDATE_FIELDS = ['parentId', 'subTaskIds', 'wontDoOn'] as const;
 
 const toPluginTaskCopy = (
   task: (TaskCopy & { subTasks?: unknown }) | null | undefined,
@@ -244,6 +242,7 @@ export class PluginBridgeService implements OnDestroy {
   ): {
     persistDataSynced: (dataStr: string, key?: string) => Promise<void>;
     loadPersistedData: (key?: string) => Promise<string | null>;
+    listSyncedDataKeys: (prefix?: string) => Promise<string[]>;
     getConfig: () => Promise<unknown>;
     downloadFile: (filename: string, data: string) => Promise<void>;
     registerHeaderButton: (cfg: PluginHeaderBtnCfg) => void;
@@ -303,7 +302,10 @@ export class PluginBridgeService implements OnDestroy {
       // Data persistence
       persistDataSynced: (dataStr: string, key?: string) =>
         this._persistDataSynced(pluginId, dataStr, key),
-      loadPersistedData: (key?: string) => this._loadPersistedData(pluginId, key),
+      loadPersistedData: (key?: string) =>
+        loadPluginPersistedData(this._pluginUserPersistenceService, pluginId, key),
+      listSyncedDataKeys: (prefix?: string) =>
+        listPluginDataKeys(this._store, pluginId, prefix),
       getConfig: () => this._getConfig(pluginId),
       downloadFile: (filename: string, data: string) =>
         this._downloadFile(filename, data),
@@ -636,8 +638,8 @@ export class PluginBridgeService implements OnDestroy {
   }
 
   private async _downloadFile(filename: string, data: string): Promise<void> {
-    typia.assert<string>(filename);
-    typia.assert<string>(data);
+    pluginAssert.string(filename);
+    pluginAssert.string(data);
 
     const { download } = await import('../util/download');
     await download(filename, data);
@@ -647,7 +649,7 @@ export class PluginBridgeService implements OnDestroy {
    * Show a snack message to the user
    */
   showSnack(snackCfg: SnackCfg): void {
-    typia.assert<SnackCfg>(snackCfg);
+    pluginAssert.snackCfg(snackCfg);
     const snackParams = snackCfgToSnackParams(snackCfg);
     this._snackService.open(snackParams);
   }
@@ -656,7 +658,7 @@ export class PluginBridgeService implements OnDestroy {
    * Show a notification to the user
    */
   async notify(notifyCfg: NotifyCfg): Promise<void> {
-    typia.assert<NotifyCfg>(notifyCfg);
+    pluginAssert.notifyCfg(notifyCfg);
 
     // Use the app's NotifyService for better integration
     await this._notifyService.notify({
@@ -674,7 +676,7 @@ export class PluginBridgeService implements OnDestroy {
    * Open a dialog using Angular Material
    */
   async openDialog(dialogCfg: DialogCfg): Promise<DialogResult> {
-    typia.assert<DialogCfg>(dialogCfg);
+    pluginAssert.dialogCfg(dialogCfg);
 
     return new Promise<DialogResult>((resolve, reject) => {
       try {
@@ -880,8 +882,8 @@ export class PluginBridgeService implements OnDestroy {
    * Update a task
    */
   async updateTask(taskId: string, updates: Partial<TaskCopy>): Promise<void> {
-    typia.assert<string>(taskId);
-    typia.assert<Partial<TaskCopy>>(updates);
+    pluginAssert.string(taskId);
+    pluginAssert.partialTask(updates);
 
     // Relational fields are rejected rather than applied: they reach the reducer
     // as plain values, so setting `parentId` writes a task that no parent lists
@@ -893,9 +895,12 @@ export class PluginBridgeService implements OnDestroy {
     const rejectedField = REJECTED_UPDATE_FIELDS.find((field) => field in updates);
     if (rejectedField) {
       throw new Error(
-        this._translateService.instant(T.PLUGINS.FIELD_NOT_UPDATABLE, {
-          field: rejectedField,
-        }),
+        this._translateService.instant(
+          rejectedField === 'wontDoOn'
+            ? T.PLUGINS.FIELD_NOT_IN_PLUGIN_API
+            : T.PLUGINS.FIELD_NOT_UPDATABLE,
+          { field: rejectedField },
+        ),
       );
     }
 
@@ -942,7 +947,7 @@ export class PluginBridgeService implements OnDestroy {
    * Add a new task
    */
   async addTask(taskData: PluginCreateTaskData): Promise<string> {
-    typia.assert<PluginCreateTaskData>(taskData);
+    pluginAssert.createTaskData(taskData);
 
     // Validate that referenced project, tags, and parent task exist
     await this._validateTaskReferences(
@@ -1019,7 +1024,7 @@ export class PluginBridgeService implements OnDestroy {
    * Delete a task
    */
   async deleteTask(taskId: string): Promise<void> {
-    typia.assert<string>(taskId);
+    pluginAssert.string(taskId);
 
     try {
       // Get the task with its subtasks
@@ -1059,7 +1064,7 @@ export class PluginBridgeService implements OnDestroy {
    * Add a new project
    */
   async addProject(projectData: Partial<ProjectCopy>): Promise<string> {
-    typia.assert<Partial<ProjectCopy>>(projectData);
+    pluginAssert.partialProject(projectData);
 
     PluginLog.log('PluginBridge: Project add');
     return this._projectService.add(projectData);
@@ -1069,8 +1074,8 @@ export class PluginBridgeService implements OnDestroy {
    * Update a project
    */
   async updateProject(projectId: string, updates: Partial<ProjectCopy>): Promise<void> {
-    typia.assert<string>(projectId);
-    typia.assert<Partial<ProjectCopy>>(updates);
+    pluginAssert.string(projectId);
+    pluginAssert.partialProject(updates);
 
     // Update the project using ProjectService (ProjectCopy is compatible with Project)
     this._projectService.update(projectId, updates);
@@ -1082,7 +1087,7 @@ export class PluginBridgeService implements OnDestroy {
    * Delete a project and the tasks it contains
    */
   async deleteProject(projectId: string, permissions?: string[]): Promise<void> {
-    typia.assert<string>(projectId);
+    pluginAssert.string(projectId);
 
     // Deleting a project is the only irreversible operation in the plugin API — the
     // cascade takes the backlog, subtasks and notes with it, there is no
@@ -1131,7 +1136,7 @@ export class PluginBridgeService implements OnDestroy {
    * Add a new tag
    */
   async addTag(tagData: Partial<TagCopy>): Promise<string> {
-    typia.assert<Partial<TagCopy>>(tagData);
+    pluginAssert.partialTag(tagData);
 
     // Add the tag using TagService (TagCopy is compatible with Tag)
     const tagId = this._tagService.addTag(tagData);
@@ -1143,8 +1148,8 @@ export class PluginBridgeService implements OnDestroy {
    * Update a tag
    */
   async updateTag(tagId: string, updates: Partial<TagCopy>): Promise<void> {
-    typia.assert<string>(tagId);
-    typia.assert<Partial<TagCopy>>(updates);
+    pluginAssert.string(tagId);
+    pluginAssert.partialTag(updates);
 
     // Update the tag using TagService (TagCopy is compatible with Tag)
     this._tagService.updateTag(tagId, updates);
@@ -1162,9 +1167,9 @@ export class PluginBridgeService implements OnDestroy {
     contextId: string,
     contextType: 'project' | 'task',
   ): Promise<void> {
-    typia.assert<string[]>(taskIds);
-    typia.assert<string>(contextId);
-    typia.assert<'project' | 'task'>(contextType);
+    pluginAssert.stringArray(taskIds);
+    pluginAssert.string(contextId);
+    pluginAssert.contextType(contextType);
 
     if (contextType === 'project') {
       // Update project's taskIds to reflect new order
@@ -1265,7 +1270,7 @@ export class PluginBridgeService implements OnDestroy {
    * the work-view body.
    */
   async selectTask(taskId: string): Promise<void> {
-    typia.assert<string>(taskId);
+    pluginAssert.string(taskId);
 
     const task = await firstValueFrom(this._taskService.getByIdOnce$(taskId));
     if (!task) {
@@ -1302,7 +1307,7 @@ export class PluginBridgeService implements OnDestroy {
    * Large batches are automatically chunked to prevent oversized operation payloads
    */
   async batchUpdateForProject(request: BatchUpdateRequest): Promise<BatchUpdateResult> {
-    typia.assert<BatchUpdateRequest>(request);
+    pluginAssert.batchUpdateRequest(request);
 
     // Generate IDs for all create operations upfront
     // We need consistent IDs across all chunks
@@ -1372,7 +1377,7 @@ export class PluginBridgeService implements OnDestroy {
     dataStr: string,
     key?: string,
   ): Promise<void> {
-    typia.assert<string>(dataStr);
+    pluginAssert.string(dataStr);
     assertPluginPersistenceKey(key);
 
     try {
@@ -1394,28 +1399,6 @@ export class PluginBridgeService implements OnDestroy {
         throw error;
       }
       throw new Error(this._translateService.instant(T.PLUGINS.UNABLE_TO_PERSIST_DATA));
-    }
-  }
-
-  /**
-   * Internal method to load persisted plugin data.
-   *
-   * `composeId` runs outside the try/catch so a bad pluginId throws to the
-   * caller symmetrically with the persist path — silently returning `null`
-   * for "your pluginId is malformed" would look indistinguishable from "no
-   * data yet" and could mask a misconfiguration.
-   */
-  private async _loadPersistedData(
-    pluginId: string,
-    key?: string,
-  ): Promise<string | null> {
-    assertPluginPersistenceKey(key);
-    const entityId = composeId(pluginId, key);
-    try {
-      return await this._pluginUserPersistenceService.loadPluginUserData(entityId);
-    } catch (error) {
-      PluginLog.err('PluginBridge: Failed to get persisted plugin data:', error);
-      return null;
     }
   }
 
@@ -1453,8 +1436,8 @@ export class PluginBridgeService implements OnDestroy {
     hook: T,
     handler: PluginHookHandler<T>,
   ): void {
-    typia.assert<string>(pluginId);
-    typia.assert<Hooks>(hook);
+    pluginAssert.string(pluginId);
+    pluginAssert.hook(hook);
     // Note: Can't assert generic function type with typia
 
     this._pluginHooksService.registerHookHandler(pluginId, hook, handler);
@@ -1464,7 +1447,7 @@ export class PluginBridgeService implements OnDestroy {
    * Unregister all hooks for a plugin
    */
   unregisterPluginHooks(pluginId: string): void {
-    typia.assert<string>(pluginId);
+    pluginAssert.string(pluginId);
 
     this._pluginHooksService.unregisterPluginHooks(pluginId);
     this._removePluginHeaderButtons(pluginId);
@@ -1495,7 +1478,7 @@ export class PluginBridgeService implements OnDestroy {
     pluginId: string,
     headerBtnCfg: PluginHeaderBtnCfg,
   ): void {
-    typia.assert<Omit<PluginHeaderBtnCfg, 'pluginId'>>(headerBtnCfg);
+    pluginAssert.headerBtnCfg(headerBtnCfg);
 
     const newButton: PluginHeaderBtnCfg = {
       ...headerBtnCfg,
@@ -1963,7 +1946,7 @@ export class PluginBridgeService implements OnDestroy {
     }
 
     try {
-      typia.assert<PluginNodeScriptRequest>(request);
+      pluginAssert.nodeScriptRequest(request);
 
       if (!manifest) {
         return {
@@ -2160,7 +2143,7 @@ export class PluginBridgeService implements OnDestroy {
    * @param key The counter key (e.g., 'daily-commits').
    */
   async getCounter(id: string): Promise<number | null> {
-    typia.assert<string>(id);
+    pluginAssert.string(id);
     // Allow uppercase, lowercase, numbers, hyphens, underscores
     if (!/^[A-Za-z0-9_-]+$/.test(id)) {
       throw new Error('Invalid counter key: must be alphanumeric with hyphens');
@@ -2170,8 +2153,8 @@ export class PluginBridgeService implements OnDestroy {
   }
 
   async setCounter(id: string, value: number): Promise<void> {
-    typia.assert<string>(id);
-    typia.assert<number>(value);
+    pluginAssert.string(id);
+    pluginAssert.number(value);
     // Allow uppercase, lowercase, numbers, hyphens, underscores
     if (!/^[A-Za-z0-9_-]+$/.test(id)) {
       throw new Error('Invalid counter key: must be alphanumeric with hyphens');
@@ -2217,8 +2200,8 @@ export class PluginBridgeService implements OnDestroy {
   }
 
   async incrementCounter(id: string, incrementBy = 1): Promise<number> {
-    typia.assert<string>(id);
-    typia.assert<number>(incrementBy);
+    pluginAssert.string(id);
+    pluginAssert.number(incrementBy);
     if (typeof incrementBy !== 'number' || !isFinite(incrementBy) || incrementBy <= 0) {
       throw new Error('Invalid increment amount: must be a positive number');
     }
@@ -2229,8 +2212,8 @@ export class PluginBridgeService implements OnDestroy {
   }
 
   async decrementCounter(id: string, decrementBy = 1): Promise<number> {
-    typia.assert<string>(id);
-    typia.assert<number>(decrementBy);
+    pluginAssert.string(id);
+    pluginAssert.number(decrementBy);
     if (typeof decrementBy !== 'number' || !isFinite(decrementBy) || decrementBy <= 0) {
       throw new Error('Invalid decrement amount: must be a positive number');
     }

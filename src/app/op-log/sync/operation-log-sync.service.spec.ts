@@ -50,6 +50,7 @@ import {
   ForceUploadPendingOpsError,
   IncompleteRemoteOperationsError,
   LocalDataConflictError,
+  OwnUploadsMissingConflictError,
   SyncEpochChangedError,
 } from '../core/errors/sync-errors';
 import { SyncProviderManager } from '../sync-providers/provider-manager.service';
@@ -372,6 +373,8 @@ describe('OperationLogSyncService', () => {
           provide: OperationLogDownloadService,
           useValue: jasmine.createSpyObj('OperationLogDownloadService', [
             'downloadRemoteOps',
+            'getUndecryptableRemoteOps',
+            'clearUndecryptableRemoteOps',
           ]),
         },
         { provide: LockService, useValue: lockServiceSpy },
@@ -1950,6 +1953,62 @@ describe('OperationLogSyncService', () => {
 
           expect(forceUploadSpy).toHaveBeenCalled();
           expect(outcome.kind).toBe('no_new_ops');
+        });
+
+        it('cancels USE_LOCAL when the user declines deleting undecryptable remote ops', async () => {
+          const incomingImport: Operation = {
+            ...remoteOp(),
+            id: 'import-in-prefix',
+            actionType: ActionType.LOAD_ALL_DATA,
+            opType: OpType.SyncImport,
+            entityType: 'ALL',
+            entityId: undefined,
+          };
+          downloadServiceSpy.downloadRemoteOps.and.resolveTo({
+            newOps: [incomingImport],
+            latestServerSeq: 17,
+            needsFullStateUpload: false,
+            success: true,
+            providerMode: 'superSyncOps',
+            failedFileCount: 0,
+            decryptErrorAfterKeptPrefix: decryptError,
+          });
+          opLogStoreSpy.getUnsynced.and.resolveTo([
+            {
+              seq: 1,
+              op: {
+                ...remoteOp(),
+                id: 'local-op-1',
+                clientId: 'client-A',
+                payload: { title: 'Local Title' },
+                vectorClock: { clientA: 1 },
+              },
+              appliedAt: Date.now(),
+              source: 'local',
+            },
+          ]);
+          stateSnapshotServiceSpy.getStateSnapshot.and.returnValue({
+            task: { ids: ['task-1'] },
+            project: { ids: [INBOX_PROJECT.id] },
+            tag: { ids: [TODAY_TAG.id] },
+            note: { ids: [] },
+          } as any);
+          syncImportConflictDialogServiceSpy.showConflictDialog.and.resolveTo(
+            'USE_LOCAL',
+          );
+          const localState = TestBed.inject(SyncLocalStateService);
+          spyOn(localState, 'confirmOverwriteOfUndecryptableRemoteOps').and.returnValue(
+            false,
+          );
+          const forceUploadSpy = spyOn(service, 'forceUploadLocalState');
+
+          const outcome = await service.downloadRemoteOps(provider, {
+            keepDecryptedPrefix: true,
+          });
+
+          expect(localState.confirmOverwriteOfUndecryptableRemoteOps).toHaveBeenCalled();
+          expect(forceUploadSpy).not.toHaveBeenCalled();
+          expect(outcome.kind).toBe('cancelled');
         });
 
         it('still reports the decrypt error when the cursor stayed behind the prefix', async () => {
@@ -3542,6 +3601,40 @@ describe('OperationLogSyncService', () => {
           expect(syncHydrationServiceSpy.hydrateFromRemoteSync).not.toHaveBeenCalled();
         });
 
+        it('should show the conflict dialog, not hydrate, when the remote lost this client’s synced changes (#10916)', async () => {
+          // Nothing pending: the client already uploaded its changes. A remote that
+          // lost them must not be hydrated silently.
+          opLogStoreSpy.getUnsynced.and.resolveTo([]);
+          opLogStoreSpy.getLastSeq.and.resolveTo(3);
+          const syncHydrationServiceSpy = TestBed.inject(
+            SyncHydrationService,
+          ) as jasmine.SpyObj<SyncHydrationService>;
+          syncHydrationServiceSpy.hydrateFromRemoteSync.and.resolveTo();
+
+          downloadServiceSpy.downloadRemoteOps.and.resolveTo({
+            newOps: [],
+            needsFullStateUpload: false,
+            success: true,
+            providerMode: 'fileSnapshotOps',
+            failedFileCount: 0,
+            snapshotState: { tasks: [{ id: 'remote-task' }] },
+            snapshotVectorClock: { clientA: 2, clientB: 5 },
+            latestServerSeq: 1,
+            ownUploadsMissing: true,
+          });
+
+          const mockProvider = {
+            isReady: () => Promise.resolve(true),
+            supportsOperationSync: true,
+            setLastServerSeq: jasmine.createSpy('setLastServerSeq').and.resolveTo(),
+          } as any;
+
+          await expectAsync(service.downloadRemoteOps(mockProvider)).toBeRejectedWith(
+            jasmine.any(OwnUploadsMissingConflictError),
+          );
+          expect(syncHydrationServiceSpy.hydrateFromRemoteSync).not.toHaveBeenCalled();
+        });
+
         it('should throw LocalDataConflictError when only config ops but store has meaningful data (provider switch)', async () => {
           const unsyncedEntry: OperationLogEntry = {
             seq: 1,
@@ -4896,6 +4989,10 @@ describe('OperationLogSyncService', () => {
       );
       expect(opLogStoreSpy.getOpById).toHaveBeenCalledOnceWith('force-import');
       expect(result).toEqual({ hasUnresolvedOps: false });
+      // #9256: the clean slate deleted the ops this device could not decrypt.
+      expect(
+        TestBed.inject(OperationLogDownloadService).clearUndecryptableRemoteOps,
+      ).toHaveBeenCalled();
     });
 
     it('should upload pending ops after creating SYNC_IMPORT', async () => {
@@ -4966,6 +5063,10 @@ describe('OperationLogSyncService', () => {
       await expectAsync(service.forceUploadLocalState(mockProvider)).toBeRejectedWith(
         error,
       );
+      // The server was not replaced, so the undecryptable ops are still there.
+      expect(
+        TestBed.inject(OperationLogDownloadService).clearUndecryptableRemoteOps,
+      ).not.toHaveBeenCalled();
     });
 
     it('should reject when mandatory encryption blocks the force upload', async () => {
@@ -6060,6 +6161,39 @@ describe('OperationLogSyncService', () => {
 
       // Should update lastServerSeq after hydration
       expect(setLastServerSeqSpy).toHaveBeenCalledWith(1);
+    });
+
+    it('still hydrates on USE_REMOTE when the remote lost this client’s synced changes (#10916)', async () => {
+      // The dialog's Keep remote must apply the remote, not reopen the dialog.
+      const snapshotState = { task: { ids: ['remote-task-1'] } };
+      const snapshotVectorClock = { clientB: 5 };
+      opLogStoreSpy.getLastSeq.and.resolveTo(3);
+      downloadServiceSpy.downloadRemoteOps.and.resolveTo({
+        newOps: [],
+        needsFullStateUpload: false,
+        success: true,
+        providerMode: 'fileSnapshotOps',
+        failedFileCount: 0,
+        snapshotState,
+        snapshotVectorClock,
+        latestServerSeq: 1,
+        ownUploadsMissing: true,
+      });
+      const syncHydrationServiceSpy = TestBed.inject(
+        SyncHydrationService,
+      ) as jasmine.SpyObj<SyncHydrationService>;
+      syncHydrationServiceSpy.hydrateFromRemoteSync.and.resolveTo();
+      const mockProvider = {
+        supportsOperationSync: true,
+        setLastServerSeq: jasmine.createSpy('setLastServerSeq').and.resolveTo(),
+      } as any;
+
+      await service.forceDownloadRemoteState(mockProvider);
+
+      expect(syncHydrationServiceSpy.hydrateFromRemoteSync).toHaveBeenCalledWith(
+        snapshotState,
+        snapshotVectorClock,
+      );
     });
 
     it('should propagate errors from the atomic replacement', async () => {
