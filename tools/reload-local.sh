@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# activate the pinned node (.nvmrc -> v22.18.0); nvm misbehaves under `set -u`
+# activate the pinned node (.nvmrc -> v22.23.3); nvm misbehaves under `set -u`
 set +u
 export NVM_DIR="$HOME/.nvm"
 [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"
