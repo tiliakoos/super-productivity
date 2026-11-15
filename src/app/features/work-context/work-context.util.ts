@@ -1,4 +1,5 @@
 import { TaskWithSubTasks } from '../tasks/task.model';
+import { sumSubTaskTimeLeft } from '../tasks/util/sum-sub-task-time-left';
 
 /**
  * Order completed tasks by when they were completed, newest first, so the most
@@ -18,14 +19,8 @@ export const mapEstimateRemainingFromTasks = (tasks: TaskWithSubTasks[]): number
     }
     let estimateRemaining;
     if (task.subTasks && task.subTasks.length > 0) {
-      estimateRemaining = task.subTasks.reduce((subAcc, subTask) => {
-        if (!subTask) {
-          return subAcc;
-        }
-        const estimateRemainingSub = +subTask.timeEstimate - +subTask.timeSpent;
-        const isTrackValSub = estimateRemainingSub > 0 && !subTask.isDone;
-        return subAcc + (isTrackValSub ? estimateRemainingSub : 0);
-      }, 0);
+      // nested sub tasks: a sub task with sub tasks holds its time left already
+      estimateRemaining = sumSubTaskTimeLeft(task.subTasks.filter((st) => !!st));
     } else {
       estimateRemaining = +task.timeEstimate - +task.timeSpent;
     }

@@ -40,6 +40,7 @@ import {
   updateTagOrder,
 } from './tag.actions';
 import { Log } from '../../../core/log';
+import { hasAncestorInSet } from '../../tasks/util/task-tree.util';
 
 export const TAG_FEATURE_NAME = 'tag';
 const WORK_CONTEXT_TYPE: WorkContextType = WorkContextType.TAG;
@@ -121,10 +122,10 @@ export const computeOrderedTaskIdsForTag = (
   // Filter out subtasks whose parent also has this tag
   // (subtasks should only appear nested under their parent, not as separate top-level items)
   const tasksWithTagSet = new Set(tasksWithTag);
-  const topLevelTasksWithTag = tasksWithTag.filter((taskId) => {
-    const task = taskEntities[taskId];
-    return !task?.parentId || !tasksWithTagSet.has(task.parentId);
-  });
+  const topLevelTasksWithTag = tasksWithTag.filter(
+    // nested sub tasks: any ancestor with the tag takes precedence
+    (taskId) => !hasAncestorInSet(taskId, taskEntities, tasksWithTagSet),
+  );
 
   if (topLevelTasksWithTag.length === 0) {
     return [];

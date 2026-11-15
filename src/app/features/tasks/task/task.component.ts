@@ -134,6 +134,7 @@ import { getSubTaskTimeLeftForDisplay } from '../util/get-sub-task-time-left-for
 import { getScheduledDateColor } from '../util/get-scheduled-date-color';
 import { isWontDoTask } from '../util/is-wont-do-task';
 import { IssueSyncStateService } from '../../issue/two-way-sync/issue-sync-state.service';
+import { TaskTreeService } from '../task-tree.service';
 
 const isInteractiveTarget = (target: EventTarget | null): boolean =>
   target instanceof Element &&
@@ -213,6 +214,7 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
   private readonly _datePipe = inject(LocaleDatePipe);
   private readonly _plannerService = inject(PlannerService);
   private readonly _addSubtaskInputService = inject(AddSubtaskInputService);
+  private readonly _taskTreeService = inject(TaskTreeService);
   private readonly _multiSelect = inject(TaskMultiSelectService);
   private readonly _taskMoveToProjectService = inject(TaskMoveToProjectService);
   private readonly _tagService = inject(TagService);
@@ -1131,8 +1133,8 @@ export class TaskComponent implements OnDestroy, AfterViewInit {
 
   addSubTask(): void {
     const task = this.task();
-    const parentId = task.parentId || task.id;
-    if (!task.parentId && task._hideSubTasksMode === HideSubTasksMode.HideAll) {
+    const parentId = this._taskTreeService.getParentIdForNewSubTask(task);
+    if (parentId === task.id && task._hideSubTasksMode === HideSubTasksMode.HideAll) {
       this._taskService.showSubTasks(task.id);
     }
     this._addSubtaskInputService.requestOpen(parentId);

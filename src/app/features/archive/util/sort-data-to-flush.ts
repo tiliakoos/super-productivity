@@ -6,6 +6,7 @@ import {
 import { ArchiveTask, TaskArchive } from '../../tasks/task.model';
 import { ImpossibleError } from '../../../op-log/sync-exports';
 import { dirtyDeepCopy } from '../../../util/dirtyDeepCopy';
+import { getDescendantIds } from '../../tasks/util/task-tree.util';
 
 const TIME_TRACKING_CATEGORIES = ['project', 'tag'] as const;
 
@@ -273,9 +274,9 @@ export const splitArchiveTasksByDoneOnThreshold = ({
   tasksToMove.forEach((task) => {
     delete newYoungEntities[task.id];
     newOldEntities[task.id] = task;
-    // Always move subtasks together with their parent
+    // Always move (nested) subtasks together with their parent
     if (task.subTaskIds) {
-      task.subTaskIds.forEach((subTaskId) => {
+      getDescendantIds(task.id, youngTaskState.entities).forEach((subTaskId) => {
         const subTask = newYoungEntities[subTaskId];
         if (subTask) {
           delete newYoungEntities[subTaskId];

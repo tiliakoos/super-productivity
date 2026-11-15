@@ -1,4 +1,5 @@
 import { Task } from '../task.model';
+import { TaskTreeLookup } from './task-tree.util';
 import {
   canApplyConvertToSubTask,
   canConvertTaskToSubTask,
@@ -57,17 +58,25 @@ describe('canConvertTaskToSubTask', () => {
 describe('canApplyConvertToSubTask', () => {
   const task = { ...eligible(), id: 't1' };
   const parent: Pick<Task, 'id' | 'parentId'> = { id: 'p1', parentId: undefined };
+  // p1 (top level) -> l1 -> l2 -> l3 (deepest allowed level)
+  const entities: TaskTreeLookup = {
+    p1: { id: 'p1', subTaskIds: ['l1'] },
+    l1: { id: 'l1', parentId: 'p1', subTaskIds: ['l2'] },
+    l2: { id: 'l2', parentId: 'l1', subTaskIds: ['l3'] },
+    l3: { id: 'l3', parentId: 'l2', subTaskIds: [] },
+    same: { id: 'same', subTaskIds: [] },
+  };
 
   it('accepts an eligible task onto a valid top-level parent', () => {
-    expect(canApplyConvertToSubTask(task, parent)).toBe(true);
+    expect(canApplyConvertToSubTask(task, parent, entities)).toBe(true);
   });
 
   it('rejects when the task is missing', () => {
-    expect(canApplyConvertToSubTask(undefined, parent)).toBe(false);
+    expect(canApplyConvertToSubTask(undefined, parent, entities)).toBe(false);
   });
 
   it('rejects when the target parent is missing', () => {
-    expect(canApplyConvertToSubTask(task, undefined)).toBe(false);
+    expect(canApplyConvertToSubTask(task, undefined, entities)).toBe(false);
   });
 
   it('rejects self-nesting', () => {
@@ -75,17 +84,26 @@ describe('canApplyConvertToSubTask', () => {
       canApplyConvertToSubTask(
         { ...task, id: 'same' },
         { id: 'same', parentId: undefined },
+        entities,
       ),
     ).toBe(false);
   });
 
-  it('rejects nesting under a task that is itself a subtask', () => {
-    expect(canApplyConvertToSubTask(task, { id: 'p1', parentId: 'grandparent' })).toBe(
+  it('accepts nesting under a sub task above the max depth', () => {
+    expect(canApplyConvertToSubTask(task, { id: 'l2', parentId: 'l1' }, entities)).toBe(
+      true,
+    );
+  });
+
+  it('rejects nesting under a task on the deepest level', () => {
+    expect(canApplyConvertToSubTask(task, { id: 'l3', parentId: 'l2' }, entities)).toBe(
       false,
     );
   });
 
   it('rejects an ineligible task (already a subtask)', () => {
-    expect(canApplyConvertToSubTask({ ...task, parentId: 'x' }, parent)).toBe(false);
+    expect(canApplyConvertToSubTask({ ...task, parentId: 'x' }, parent, entities)).toBe(
+      false,
+    );
   });
 });

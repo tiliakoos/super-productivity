@@ -27,6 +27,7 @@ export const isBlankTask = (task: Task | TaskWithSubTasks): boolean => {
     !task.dueDay &&
     !task.deadlineDay &&
     !task.deadlineWithTime &&
-    (!subTasks?.length || subTasks.every(isBlankTask))
+    // without resolved sub tasks, any sub task counts as data (nested sub tasks)
+    (subTasks ? subTasks.every(isBlankTask) : !task.subTaskIds?.length)
   );
 };

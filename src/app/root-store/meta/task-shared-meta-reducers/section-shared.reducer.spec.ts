@@ -352,10 +352,12 @@ describe('sectionSharedMetaReducer', () => {
     expect(mockReducer.calls.mostRecent().args[0]).toBe(state);
   });
 
-  it('keeps section membership when the target parent is itself a subtask', () => {
+  it('keeps section membership when the target parent is on the deepest level', () => {
     const state = stateWith(
       {
-        grandparent: { subTaskIds: ['parentSub'] },
+        l0: { subTaskIds: ['l1'] },
+        l1: { parentId: 'l0', subTaskIds: ['grandparent'] },
+        grandparent: { parentId: 'l1', subTaskIds: ['parentSub'] },
         parentSub: { parentId: 'grandparent' },
         t1: {},
       },

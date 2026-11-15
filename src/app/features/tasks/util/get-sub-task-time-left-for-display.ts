@@ -22,7 +22,10 @@ const floorToFullMinute = (ms: number): number => Math.floor(ms / MINUTE) * MINU
 export const getSubTaskTimeLeftForDisplay = (subTasks: Task[]): number => {
   const timeLeft = sumSubTaskTimeLeft(subTasks);
   const isOneTotal = subTasks?.every(
-    (subTask) => !subTask.isDone && subTask.timeSpent <= subTask.timeEstimate,
+    (subTask) =>
+      !subTask.isDone &&
+      !subTask.subTaskIds?.length &&
+      subTask.timeSpent <= subTask.timeEstimate,
   );
   if (!isOneTotal) {
     return floorToFullMinute(timeLeft);

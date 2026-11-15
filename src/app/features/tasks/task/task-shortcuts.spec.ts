@@ -125,8 +125,14 @@ describe('TaskComponent shortcut handling', () => {
         openRequest: signal(null),
       },
     );
-    storeSpy = jasmine.createSpyObj<Store>('Store', ['dispatch', 'select']);
+    storeSpy = jasmine.createSpyObj<Store>('Store', [
+      'dispatch',
+      'select',
+      'selectSignal',
+    ]);
     storeSpy.select.and.returnValue(of(new Set<string>()));
+    // TaskTreeService reads the task state lazily; none means the one-level rule
+    storeSpy.selectSignal.and.returnValue(signal(undefined) as never);
 
     await TestBed.configureTestingModule({
       imports: [TaskComponent],

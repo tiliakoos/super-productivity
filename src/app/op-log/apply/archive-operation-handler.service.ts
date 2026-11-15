@@ -2,6 +2,7 @@ import { inject, Injectable, Injector } from '@angular/core';
 import { Action } from '@ngrx/store';
 import type { ArchiveSideEffectPort } from '@sp/sync-core';
 import { PersistentAction } from '../core/persistent-action.interface';
+import { flattenNestedSubTasks } from '../../features/tasks/util/task-tree.util';
 import { TaskSharedActions } from '../../root-store/meta/task-shared.actions';
 import {
   compressArchive,
@@ -256,8 +257,15 @@ export class ArchiveOperationHandler implements ArchiveSideEffectPort<Persistent
    * @remoteBehavior Executes under the TASK_ARCHIVE mutex
    */
   private async _handleRestoreTask(action: PersistentAction): Promise<void> {
-    const task = (action as ReturnType<typeof TaskSharedActions.restoreTask>).task;
-    const taskIds = [task.id, ...task.subTaskIds];
+    const { task, subTasks } = action as ReturnType<typeof TaskSharedActions.restoreTask>;
+    // nested sub tasks: the payload carries every level below the root
+    const taskIds = [
+      ...new Set([
+        task.id,
+        ...task.subTaskIds,
+        ...flattenNestedSubTasks(subTasks).map((subTask) => subTask.id),
+      ]),
+    ];
     const isRemote = !!action.meta?.isRemote;
     await this._getTaskArchiveService().deleteTasks(
       taskIds,

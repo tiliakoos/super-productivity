@@ -39,6 +39,10 @@ import { getDbDateStr } from '../../../util/get-db-date-str';
 import { moveItemAfterAnchor } from '../../../features/work-context/store/work-context-meta.helper';
 import { canApplyConvertToSubTask } from '../../../features/tasks/util/can-convert-task-to-sub-task';
 import {
+  flattenNestedSubTasks,
+  getDescendantIds,
+} from '../../../features/tasks/util/task-tree.util';
+import {
   ActionHandlerMap,
   addTaskToList,
   addTaskToPlannerDay,
@@ -292,7 +296,11 @@ const handleConvertToSubTask = (
   // The `!task || !targetParent` checks also narrow the types below; the full
   // eligibility rule (incl. self-target and not-a-subtask) lives in the shared
   // guard so the section meta-reducer stays in lock-step.
-  if (!task || !targetParent || !canApplyConvertToSubTask(task, targetParent)) {
+  if (
+    !task ||
+    !targetParent ||
+    !canApplyConvertToSubTask(task, targetParent, state[TASK_FEATURE_NAME].entities)
+  ) {
     return state;
   }
 
@@ -415,13 +423,21 @@ const updateCalendarAutoImportDismissals = (
 
 const handleDeleteTask = (state: RootState, task: TaskWithSubTasks): RootState => {
   let updatedState = state;
+  // nested sub tasks: every level below the deleted task goes with it
+  const stateDescendants = getDescendantIds(task.id, state[TASK_FEATURE_NAME].entities)
+    .map((id) => state[TASK_FEATURE_NAME].entities[id])
+    .filter((t): t is Task => !!t);
 
   // Delete task from task state using helper
   updatedState = {
     ...updatedState,
     [TASK_FEATURE_NAME]: updateCalendarAutoImportDismissals(
       deleteTaskHelper(updatedState[TASK_FEATURE_NAME], task),
-      getCalendarAutoImportDismissals([task, ...(task.subTasks ?? [])]),
+      getCalendarAutoImportDismissals([
+        task,
+        ...flattenNestedSubTasks(task.subTasks),
+        ...stateDescendants,
+      ]),
       true,
     ),
   };
@@ -438,7 +454,10 @@ const handleDeleteTask = (state: RootState, task: TaskWithSubTasks): RootState =
   // Find affected tags from CURRENT STATE, not payload — during sync the
   // receiving client may have different tag associations, so all tags are
   // scanned (incl. the task's subtask ids) for complete cleanup.
-  return removeTasksFromAllTags(updatedState, [task.id, ...(task.subTaskIds || [])]);
+  return removeTasksFromAllTags(
+    updatedState,
+    unique([task.id, ...(task.subTaskIds || []), ...stateDescendants.map((t) => t.id)]),
+  );
 };
 
 const handleDeleteTasks = (
@@ -456,7 +475,7 @@ const handleDeleteTasks = (
       if (task.projectId) {
         projectIdsSet.add(task.projectId);
       }
-      return [...acc, id, ...task.subTaskIds];
+      return [...acc, id, ...getDescendantIds(id, state[TASK_FEATURE_NAME].entities)];
     }
     return [...acc, id];
   }, []);
@@ -652,10 +671,12 @@ const handleRestoreDeletedTask = (
     const parent = updatedState[TASK_FEATURE_NAME].entities[parentContext.parentTaskId];
     if (parent) {
       const currentSubTaskIds = parent.subTaskIds || [];
+      // only the deleted task itself was a child of the parent; its own
+      // (nested) sub tasks keep their restored parentId
       const mergedSubTaskIds = mergeTaskIdsAtPositions(
         parentContext.subTaskIds,
         currentSubTaskIds,
-        restoredTaskIds,
+        [payload.task.id],
       );
       updatedState = {
         ...updatedState,

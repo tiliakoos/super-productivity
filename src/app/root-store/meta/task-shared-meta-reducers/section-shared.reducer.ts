@@ -584,7 +584,9 @@ const ACTION_HANDLERS: Record<string, Handler> = {
     const targetParent = state[TASK_FEATURE_NAME].entities[targetParentId] as
       | Task
       | undefined;
-    if (!canApplyConvertToSubTask(task, targetParent)) {
+    if (
+      !canApplyConvertToSubTask(task, targetParent, state[TASK_FEATURE_NAME].entities)
+    ) {
       return state;
     }
     return handleTaskRemoval(state, [taskId]);

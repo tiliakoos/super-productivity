@@ -61,6 +61,7 @@ import { dragDelayForTouch, isTouchActive } from '../../../util/input-intent';
 import { performHapticFeedback } from '../../../util/haptic-feedback';
 import { DateService } from '../../../core/date/date.service';
 import { canConvertTaskToSubTask } from '../util/can-convert-task-to-sub-task';
+import { TaskTreeService } from '../task-tree.service';
 import { TODAY_TAG } from '../../tag/tag.const';
 import { TaskMultiSelectService } from '../task-multi-select.service';
 
@@ -123,6 +124,7 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
   private _taskService = inject(TaskService);
   private _workContextService = inject(WorkContextService);
   private _store = inject(Store);
+  private _taskTreeService = inject(TaskTreeService);
   private _sectionService = inject(SectionService);
   private _issueService = inject(IssueService);
   private _taskViewCustomizerService = inject(TaskViewCustomizerService);
@@ -321,7 +323,8 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
         if (overList && overList.listModelId === targetModelId && !overList.isOverRow) {
           return false;
         }
-        return true;
+        // nested sub tasks: no cycles and no deeper than the max depth
+        return this._taskTreeService.canMoveUnderParent(task.id, targetModelId);
       }
       return false;
     }
@@ -334,7 +337,11 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
     const isSrcSection = srcListIdRaw === 'PARENT' && !RESERVED_LIST_IDS.has(srcModelId);
 
     if (targetListId === 'SUB') {
-      return targetModelId !== task.id && canConvertTaskToSubTask(task);
+      return (
+        targetModelId !== task.id &&
+        canConvertTaskToSubTask(task) &&
+        this._taskTreeService.canAddSubTaskTo({ id: targetModelId })
+      );
     }
 
     if (PARENT_ALLOWED_LISTS.includes(targetModelId)) {
@@ -420,9 +427,9 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
       return { listModelId, isOverRow: isLeadingPad };
     }
     // Leading-strip fallback: the `.sub-tasks` wrapper extends visually above
-    // the cdkDropList element. Each wrapper holds exactly one SUB list (the
-    // two-level nesting cap is enforced by `canApplyConvertToSubTask`), so
-    // the descendant query is unambiguous.
+    // the cdkDropList element. With nested sub tasks a wrapper can hold
+    // deeper SUB lists too, but its own list comes first in document order,
+    // so the descendant query still resolves to it.
     const wrapper = element.closest<HTMLElement>('.sub-tasks');
     if (wrapper) {
       const subListEl = wrapper.querySelector<HTMLElement>(

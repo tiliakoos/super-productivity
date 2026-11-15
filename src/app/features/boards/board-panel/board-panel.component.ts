@@ -34,6 +34,7 @@ import {
   selectAllTasksInActiveProjects,
   selectTaskById,
   selectTaskByIdWithSubTaskData,
+  selectTaskEntities,
 } from '../../tasks/store/task.selectors';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { AddTaskInlineComponent } from '../../planner/add-task-inline/add-task-inline.component';
@@ -77,6 +78,7 @@ import { getScheduledDateColor } from '../../tasks/util/get-scheduled-date-color
 import type { ScheduledDateColor } from '../../tasks/util/get-scheduled-date-color';
 import { GlobalTrackingIntervalService } from '../../../core/global-tracking-interval/global-tracking-interval.service';
 import { DateService } from '../../../core/date/date.service';
+import { getRootTaskId } from '../../tasks/util/task-tree.util';
 
 export interface BoardPanelNavigation {
   direction: -1 | 1 | 'up' | 'down';
@@ -476,11 +478,13 @@ export class BoardPanelComponent implements TaskCardList {
       !isAllProjects(panelCfg.projectIds) &&
       !panelCfg.projectIds.includes(task.projectId)
     ) {
+      // nested sub tasks: the whole tree moves, starting at its top-level task
+      const taskEntities = await this.store
+        .pipe(select(selectTaskEntities), take(1))
+        .toPromise();
+      const rootTaskId = taskEntities ? getRootTaskId(task.id, taskEntities) : task.id;
       const taskWithSubTasks = await this.store
-        .pipe(
-          select(selectTaskByIdWithSubTaskData, { id: task.parentId || task.id }),
-          take(1),
-        )
+        .pipe(select(selectTaskByIdWithSubTaskData, { id: rootTaskId }), take(1))
         .toPromise();
 
       if (taskWithSubTasks) {

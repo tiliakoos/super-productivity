@@ -19,7 +19,7 @@ import { T } from '../../../t.const';
 import { SnackService } from '../../../core/snack/snack.service';
 import { deleteTag, deleteTags, updateTag } from './tag.actions';
 import { TagService } from '../tag.service';
-import { EMPTY, Observable, of } from 'rxjs';
+import { combineLatest, EMPTY, Observable, of } from 'rxjs';
 import { WorkContextType } from '../../work-context/work-context.model';
 import { WorkContextService } from '../../work-context/work-context.service';
 import { Router } from '@angular/router';
@@ -29,6 +29,8 @@ import { getDbDateStr } from '../../../util/get-db-date-str';
 import { TranslateService } from '@ngx-translate/core';
 import { PlannerService } from '../../planner/planner.service';
 import { selectAllTasksDueToday } from '../../planner/store/planner.selectors';
+import { selectTaskFeatureState } from '../../tasks/store/task.selectors';
+import { hasAncestorInSet } from '../../tasks/util/task-tree.util';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import { Log } from '../../../core/log';
 import { skipDuringSyncWindow } from '../../../util/skip-during-sync-window.operator';
@@ -185,14 +187,28 @@ export class TagEffects {
       distinctUntilChanged(fastArrayCompare),
       // NOTE: wait a bit for potential effects to be executed
       switchMap((todayTaskIds) =>
-        this._store$.select(selectAllTasksDueToday).pipe(
+        combineLatest([
+          this._store$.select(selectAllTasksDueToday),
+          this._store$.select(selectTaskFeatureState),
+        ]).pipe(
           first(),
-          map((allTasksDueToday) => ({ allTasksDueToday, todayTaskIds })),
+          map(([allTasksDueToday, taskState]) => ({
+            allTasksDueToday,
+            taskEntities: taskState?.entities ?? {},
+            todayTaskIds,
+          })),
         ),
       ),
-      switchMap(({ allTasksDueToday, todayTaskIds }) => {
+      switchMap(({ allTasksDueToday, taskEntities, todayTaskIds }) => {
+        // nested sub tasks: any ancestor in the list takes precedence
+        const todayTaskIdSet = new Set(todayTaskIds);
         const tasksWithParentInListIds = allTasksDueToday
-          .filter((t) => t.parentId && todayTaskIds.includes(t.parentId))
+          .filter(
+            (t) =>
+              t.parentId &&
+              (todayTaskIdSet.has(t.parentId) ||
+                hasAncestorInSet(t.id, taskEntities, todayTaskIdSet)),
+          )
           .map((t) => t.id);
 
         const dueNotInListIds = allTasksDueToday

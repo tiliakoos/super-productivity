@@ -34,6 +34,7 @@ import { HydrationStateService } from '../../../op-log/apply/hydration-state.ser
 import { waitForSyncWindow } from '../../../util/wait-for-sync-window.operator';
 import { selectTodayTagTaskIds } from '../../tag/store/tag.reducer';
 import { getDeadlineAutoPlanDecision } from '../util/get-deadline-auto-plan-fields';
+import { hasAncestorInSet } from '../util/task-tree.util';
 
 export const getOverdueIdsInTodayOrder = (
   overdue: ReadonlyArray<{ id: string }>,
@@ -206,6 +207,7 @@ export class TaskDueEffects {
                   const taskById = new Map(
                     allTasks.map((task) => [task.id, task] as const),
                   );
+                  const taskEntities = Object.fromEntries(taskById);
 
                   // Tasks with dueWithTime set have dueDay cleared (mutual exclusivity),
                   // so we must check both due selectors to catch all scheduled tasks.
@@ -225,7 +227,10 @@ export class TaskDueEffects {
                     // (preventParentAndSubTaskInTodayList$ will remove them anyway,
                     // causing an infinite add/remove loop and phantom sync changes)
                     .filter(
-                      (task) => !task.parentId || !todayTaskIdSet.has(task.parentId),
+                      (task) =>
+                        !task.parentId ||
+                        (!todayTaskIdSet.has(task.parentId) &&
+                          !hasAncestorInSet(task.id, taskEntities, todayTaskIdSet)),
                     )
                     .map((task) => task.id);
 

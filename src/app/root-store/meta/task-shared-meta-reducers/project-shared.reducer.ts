@@ -22,6 +22,7 @@ import {
 import { TASK_REPEAT_CFG_FEATURE_NAME } from '../../../features/task-repeat-cfg/store/task-repeat-cfg.selectors';
 import { TaskRepeatCfgState } from '../../../features/task-repeat-cfg/task-repeat-cfg.model';
 import { adapter as taskRepeatCfgAdapter } from '../../../features/task-repeat-cfg/store/task-repeat-cfg.selectors';
+import { getDescendantIds } from '../../../features/tasks/util/task-tree.util';
 
 /**
  * Extended state type that includes feature stores not in RootState.
@@ -42,9 +43,11 @@ const handleMoveToOtherProject = (
 ): RootState => {
   const taskState = state[TASK_FEATURE_NAME];
   const canonicalTask = taskState.entities[task.id] as Task | undefined;
+  // nested sub tasks: every level below the task moves with it
   const canonicalSubTaskIds = unique([
     ...(canonicalTask?.subTaskIds ?? []),
     ...(task.subTaskIds ?? []),
+    ...getDescendantIds(task.id, taskState.entities),
   ]);
   const currentProjectId = canonicalTask?.projectId ?? task.projectId;
   const allTaskIds = unique([task.id, ...canonicalSubTaskIds]);

@@ -57,6 +57,7 @@ import { getDeadlineAutoPlanFields } from '../tasks/util/get-deadline-auto-plan-
 import { MenuTreeService } from '../menu-tree/menu-tree.service';
 import { selectMenuTreeProjectTree } from '../menu-tree/store/menu-tree.selectors';
 import { TaskTimeSyncService } from '../tasks/task-time-sync.service';
+import { getDescendantIds } from '../tasks/util/task-tree.util';
 
 export interface ProjectCompletionInfo {
   topLevelTasks: Task[];
@@ -399,7 +400,8 @@ export class ProjectService {
     allParentTaskIds.forEach((id) => {
       const task = getTaskById(id, taskState);
       if (task.projectId && task.subTaskIds.length > 0) {
-        subTaskIdsForProject.push(...task.subTaskIds);
+        // nested sub tasks: every level below the task
+        subTaskIdsForProject.push(...getDescendantIds(task.id, taskState.entities));
       }
     });
     const allTaskIds = [...allParentTaskIds, ...subTaskIdsForProject];

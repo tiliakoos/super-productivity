@@ -31,6 +31,7 @@ import {
   reCalcTimeEstimateForParentIfParent,
   updateTimeSpentForTask,
 } from '../../../features/tasks/store/task.reducer.util';
+import { getDescendantIds } from '../../../features/tasks/util/task-tree.util';
 
 // Type for mutable task changes within the reducer
 type MutableTaskChanges = { -readonly [K in keyof Task]?: Task[K] };
@@ -165,7 +166,12 @@ const moveTaskToProject = (
   targetProjectId: string,
 ): RootState => {
   let updatedState = state;
-  const allTaskIds = unique([task.id, ...(task.subTaskIds ?? [])]);
+  // nested sub tasks: every level below the task moves with it
+  const descendantIds = unique([
+    ...(task.subTaskIds ?? []),
+    ...getDescendantIds(task.id, state[TASK_FEATURE_NAME].entities),
+  ]);
+  const allTaskIds = unique([task.id, ...descendantIds]);
 
   // Remove from current project if exists
   if (currentProjectId && state[PROJECT_FEATURE_NAME].entities[currentProjectId]) {
@@ -185,8 +191,8 @@ const moveTaskToProject = (
   }
 
   // Update subtasks projectId
-  if (task.subTaskIds?.length) {
-    const subTaskUpdates: Update<Task>[] = task.subTaskIds.map((id) => ({
+  if (descendantIds.length) {
+    const subTaskUpdates: Update<Task>[] = descendantIds.map((id) => ({
       id,
       changes: { projectId: targetProjectId },
     }));

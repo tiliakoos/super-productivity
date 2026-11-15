@@ -19,6 +19,7 @@ import { plannerFeatureKey } from '../planner/store/planner.reducer';
 import { TODAY_TAG } from '../tag/tag.const';
 import { LockService } from '../../op-log/sync/lock.service';
 import { LOCK_NAMES } from '../../op-log/core/operation-log.const';
+import { getDescendantIds } from '../tasks/util/task-tree.util';
 
 // Normalize timeSpentOnDay at the data boundary so all consumers can trust the
 // invariant: timeSpentOnDay is always a valid object, never undefined. This mirrors
@@ -457,7 +458,9 @@ export class TaskArchiveService {
       if (!t) return;
       if (isOrphanedParentTask(t)) {
         archiveMainTaskIdsToDelete.push(id);
-        archiveSubTaskIdsToDelete = archiveSubTaskIdsToDelete.concat(t.subTaskIds);
+        archiveSubTaskIdsToDelete = archiveSubTaskIdsToDelete.concat(
+          getDescendantIds(id, taskArchiveState.entities),
+        );
       }
     });
     // TODO check to maybe update to today tag instead

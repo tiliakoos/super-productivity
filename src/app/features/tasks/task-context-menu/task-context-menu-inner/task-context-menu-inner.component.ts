@@ -103,6 +103,7 @@ import { getWontDoChanges } from '../../util/is-wont-do-task';
 import { IssueSyncStateService } from '../../../issue/two-way-sync/issue-sync-state.service';
 import { PlainspaceHandoffService } from '../../../issue/providers/plainspace/plainspace-handoff.service';
 import { PlainspaceMember } from '../../../issue/providers/plainspace/plainspace-api.service';
+import { TaskTreeService } from '../../task-tree.service';
 
 @Component({
   selector: 'task-context-menu-inner',
@@ -147,6 +148,7 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
   private readonly _dateService = inject(DateService);
   private readonly _menuTreeService = inject(MenuTreeService);
   private readonly _addSubtaskInputService = inject(AddSubtaskInputService);
+  private readonly _taskTreeService = inject(TaskTreeService);
   private readonly _taskDuplicateService = inject(TaskDuplicateService);
   private readonly _taskMoveToProjectService = inject(TaskMoveToProjectService);
   private readonly _taskMultiSelectService = inject(TaskMultiSelectService);
@@ -237,6 +239,7 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
     );
 
   private _destroy$: Subject<boolean> = new Subject<boolean>();
+  canAddSubTask = false;
   private _isTaskDeleteTriggered: boolean = false;
   private _isOpenedFromKeyboard = false;
   private _restoreFocusTo?: HTMLElement;
@@ -252,6 +255,7 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
     this.task = v;
     this.priority = getTaskPriority(v.priority);
     this._pluginTaskContextMenuTarget.set(v.parentId ? 'SUBTASK' : 'TASK');
+    this.canAddSubTask = this._taskTreeService.canAddSubTaskTo(v);
     this.isCurrent = this._taskService.currentTaskId() === v.id;
     this.isPlainspaceHandoff =
       v.issueType === PLAINSPACE_TYPE &&
@@ -613,7 +617,9 @@ export class TaskContextMenuInnerComponent implements AfterViewInit, OnDestroy {
   }
 
   addSubTask(): void {
-    this._addSubtaskInputService.requestOpen(this.task.parentId || this.task.id);
+    this._addSubtaskInputService.requestOpen(
+      this._taskTreeService.getParentIdForNewSubTask(this.task),
+    );
   }
 
   async duplicate(): Promise<void> {

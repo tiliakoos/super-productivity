@@ -14,6 +14,7 @@ import { Update } from '@ngrx/entity';
 import { TaskLog } from '../../../core/log';
 import { devError } from '../../../util/dev-error';
 import { sumSubTaskTimeLeft } from '../util/sum-sub-task-time-left';
+import { getAncestorIds, getDescendantIds } from '../util/task-tree.util';
 
 export const getTaskById = (taskId: string, state: TaskState): Task => {
   if (!state.entities[taskId]) {
@@ -33,10 +34,19 @@ export const reCalcTimesForParentIfParent = (
   return reCalcTimeSpentForParentIfParent(parentId, stateWithTimeEstimate);
 };
 
+/** Recalculates the parent and (nested sub tasks) every further ancestor. */
 export const reCalcTimeSpentForParentIfParent = (
   parentId: string,
   state: TaskState,
-): TaskState => {
+): TaskState =>
+  parentId
+    ? [parentId, ...getAncestorIds(parentId, state.entities)].reduce(
+        (acc, id) => reCalcTimeSpentForOneParent(id, acc),
+        state,
+      )
+    : state;
+
+const reCalcTimeSpentForOneParent = (parentId: string, state: TaskState): TaskState => {
   if (parentId) {
     const parentTask = state.entities[parentId];
     if (!parentTask) {
@@ -79,7 +89,18 @@ export const reCalcTimeSpentForParentIfParent = (
   }
 };
 
+/** Recalculates the parent and (nested sub tasks) every further ancestor. */
 export const reCalcTimeEstimateForParentIfParent = (
+  parentId: string,
+  state: TaskState,
+  upd?: Update<TaskCopy>,
+): TaskState =>
+  getAncestorIds(parentId, state.entities).reduce(
+    (acc, id) => reCalcTimeEstimateForOneParent(id, acc),
+    reCalcTimeEstimateForOneParent(parentId, state, upd),
+  );
+
+const reCalcTimeEstimateForOneParent = (
   parentId: string,
   state: TaskState,
   upd?: Update<TaskCopy>,
@@ -175,55 +196,58 @@ export const updateStartDateForRepeatableTask = (
 };
 
 /**
- * Incrementally updates parent's timeSpentOnDay based on delta from subtask change.
- * Much faster than full recalculation when only one day changed.
+ * Incrementally updates the timeSpentOnDay of every ancestor based on the delta
+ * from a sub task change. Much faster than full recalculation when only one day
+ * changed.
  */
-const updateParentTimeSpentIncremental = (
-  parentId: string,
+const updateAncestorsTimeSpentIncremental = (
+  taskId: string,
   oldTimeSpentOnDay: TimeSpentOnDay | undefined,
   newTimeSpentOnDay: TimeSpentOnDay,
   state: TaskState,
 ): TaskState => {
-  const parent = state.entities[parentId];
-  if (!parent) return state;
-
   // Find what days changed and by how much
   const allDays = new Set([
     ...Object.keys(oldTimeSpentOnDay || {}),
     ...Object.keys(newTimeSpentOnDay),
   ]);
-
+  const deltaByDay: [string, number][] = [];
   let totalDelta = 0;
-  const parentTimeSpentOnDay = { ...parent.timeSpentOnDay };
-
   for (const day of allDays) {
-    const oldVal = oldTimeSpentOnDay?.[day] || 0;
-    const newVal = newTimeSpentOnDay[day] || 0;
-    const delta = newVal - oldVal;
-
+    const delta = (newTimeSpentOnDay[day] || 0) - (oldTimeSpentOnDay?.[day] || 0);
     if (delta !== 0) {
+      deltaByDay.push([day, delta]);
       totalDelta += delta;
-      const currentParentVal = parentTimeSpentOnDay[day] || 0;
-      const newParentVal = currentParentVal + delta;
-
-      if (newParentVal > 0) {
-        parentTimeSpentOnDay[day] = newParentVal;
-      } else {
-        delete parentTimeSpentOnDay[day];
-      }
     }
   }
+  if (!deltaByDay.length) {
+    return state;
+  }
 
-  return taskAdapter.updateOne(
-    {
-      id: parentId,
-      changes: {
-        timeSpentOnDay: parentTimeSpentOnDay,
-        timeSpent: parent.timeSpent + totalDelta,
+  let newState = state;
+  for (const ancestorId of getAncestorIds(taskId, state.entities)) {
+    const ancestor = newState.entities[ancestorId] as Task;
+    const ancestorTimeSpentOnDay = { ...ancestor.timeSpentOnDay };
+    for (const [day, delta] of deltaByDay) {
+      const newVal = (ancestorTimeSpentOnDay[day] || 0) + delta;
+      if (newVal > 0) {
+        ancestorTimeSpentOnDay[day] = newVal;
+      } else {
+        delete ancestorTimeSpentOnDay[day];
+      }
+    }
+    newState = taskAdapter.updateOne(
+      {
+        id: ancestorId,
+        changes: {
+          timeSpentOnDay: ancestorTimeSpentOnDay,
+          timeSpent: ancestor.timeSpent + totalDelta,
+        },
       },
-    },
-    state,
-  );
+      newState,
+    );
+  }
+  return newState;
 };
 
 export const updateTimeSpentForTask = (
@@ -250,10 +274,10 @@ export const updateTimeSpentForTask = (
     state,
   );
 
-  // Use incremental update for parent instead of full recalculation
+  // Use incremental update for the ancestors instead of full recalculation
   return task.parentId
-    ? updateParentTimeSpentIncremental(
-        task.parentId,
+    ? updateAncestorsTimeSpentIncremental(
+        id,
         oldTimeSpentOnDay,
         newTimeSpentOnDay,
         stateAfterUpdate,
@@ -336,8 +360,15 @@ export const deleteTaskHelper = (
     );
   }
 
-  // Combine both lists to ensure all subtasks are removed
-  const allSubTaskIds = [...new Set([...payloadSubTaskIds, ...stateSubTaskIds])];
+  // Combine both lists to ensure all subtasks are removed, then add every
+  // deeper descendant (nested sub tasks) found in state.
+  const directSubTaskIds = [...new Set([...payloadSubTaskIds, ...stateSubTaskIds])];
+  const allSubTaskIds = [
+    ...new Set([
+      ...directSubTaskIds,
+      ...directSubTaskIds.flatMap((id) => getDescendantIds(id, state.entities)),
+    ]),
+  ].filter((id) => id !== taskToDelete.id);
 
   if (allSubTaskIds.length > 0) {
     stateCopy = taskAdapter.removeMany(allSubTaskIds, stateCopy);
@@ -388,6 +419,8 @@ export const removeTaskFromParentSideEffects = (
   if (!isWasLastSubTask || !isCopyTimesAfterLast) {
     newState = reCalcTimeSpentForParentIfParent(parentId, newState);
     newState = reCalcTimeEstimateForParentIfParent(parentId, newState);
+  } else if (parentTask.parentId) {
+    newState = reCalcTimesForParentIfParent(parentTask.parentId, newState);
   }
   return newState;
 };

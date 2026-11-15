@@ -4,6 +4,7 @@ import { ArchiveTask, TimeSpentOnDayCopy } from '../tasks/task.model';
 import { ArchiveModel } from './archive.model';
 import { LockService } from '../../op-log/sync/lock.service';
 import { LOCK_NAMES } from '../../op-log/core/operation-log.const';
+import { getTaskDepth } from '../tasks/util/task-tree.util';
 
 export interface CompressionPreview {
   subtasksToDelete: number;
@@ -115,13 +116,28 @@ export class ArchiveCompressionService {
       taskEntities[id] = task;
     }
 
-    // Step 2: Merge subtask time to parents and mark for deletion
+    // Step 2: Merge subtask time to parents and mark for deletion.
+    // Nested sub tasks go deepest first, so every level collapses into its
+    // parent before that parent is collapsed in turn. Their time is already
+    // part of their parent's own aggregate, so only the removal applies.
+    subtaskIds.sort(
+      (a, b) => getTaskDepth(b, taskEntities) - getTaskDepth(a, taskEntities),
+    );
     for (const subtaskId of subtaskIds) {
       const subtask = taskEntities[subtaskId];
       if (!subtask?.parentId) continue;
 
       const parent = taskEntities[subtask.parentId];
       if (!parent) continue;
+
+      if (parent.parentId) {
+        taskEntities[subtask.parentId] = {
+          ...parent,
+          subTaskIds: parent.subTaskIds.filter((id) => id !== subtaskId),
+        };
+        delete taskEntities[subtaskId];
+        continue;
+      }
 
       // Merge timeSpent
       const newTimeSpent = parent.timeSpent + subtask.timeSpent;

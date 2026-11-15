@@ -327,6 +327,11 @@ describe('TaskService', () => {
         createMockTask('task-1', { subTaskIds: ['subtask-1'] }),
         [subTask],
       );
+      store.overrideSelector(selectTaskEntities, {
+        [task.id]: task,
+        [subTask.id]: subTask,
+      });
+      store.refreshState();
 
       service.remove(task);
 

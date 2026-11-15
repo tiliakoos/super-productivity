@@ -96,6 +96,7 @@ import {
 import { findNextTaskAfterSubtree } from '../../../util/find-adjacent-focusable';
 import { TaskContextMenuComponent } from '../task-context-menu/task-context-menu.component';
 import { isWontDoTask } from '../util/is-wont-do-task';
+import { TaskTreeService } from '../task-tree.service';
 
 @Component({
   selector: 'task-detail-panel',
@@ -147,6 +148,7 @@ export class TaskDetailPanelComponent implements OnInit, AfterViewInit, OnDestro
   private _taskRepeatCfgService = inject(TaskRepeatCfgService);
   private _matDialog = inject(MatDialog);
   private _store = inject(Store);
+  private _taskTreeService = inject(TaskTreeService);
   private readonly _issueSyncState = inject(IssueSyncStateService);
   private _translateService = inject(TranslateService);
   private _destroyRef = inject(DestroyRef);
@@ -386,9 +388,15 @@ export class TaskDetailPanelComponent implements OnInit, AfterViewInit, OnDestro
   });
 
   // Template helper computed signals
+  // Nested sub tasks: any task that has sub tasks or may still get some.
   isShowSubTasksPanel = computed(() => {
     const task = this.task();
-    return task && !task.parentId;
+    return (
+      !!task &&
+      (!task.parentId ||
+        !!task.subTaskIds.length ||
+        this._taskTreeService.canAddSubTaskTo(task))
+    );
   });
 
   showTimeEstimate = computed(() => !this.task().subTasks?.length);
@@ -680,11 +688,11 @@ export class TaskDetailPanelComponent implements OnInit, AfterViewInit, OnDestro
 
   addSubTask(): void {
     const task = this.task();
-    // The sub-task section (and thus the inline input) only renders for a
-    // top-level task. On a subtask's own panel "add subtask" means "add a
+    // The sub-task section (and thus the inline input) only renders for a task
+    // that may have sub tasks. On the deepest level "add subtask" means "add a
     // sibling under my parent" — there is no section to host the input, so
     // create it directly (matches the pre-inline-draft behaviour).
-    if (task.parentId) {
+    if (task.parentId && !this._taskTreeService.canAddSubTaskTo(task)) {
       this.taskService.addSubTaskTo(task.parentId);
       return;
     }

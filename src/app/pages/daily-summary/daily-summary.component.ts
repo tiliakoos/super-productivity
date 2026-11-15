@@ -79,6 +79,10 @@ import {
 } from './simple-counter-summary-item/simple-counter-summary-item.component';
 import { MetricService } from '../../features/metric/metric.service';
 import { isWithinYesterdayMargin } from './is-include-yesterday.util';
+import {
+  getDescendantIds,
+  getRootTaskId,
+} from '../../features/tasks/util/task-tree.util';
 
 const FINISH_DAY_SYNC_WAIT_TIMEOUT_MS = 30000;
 export const FINISH_DAY_FINAL_SYNC_TIMEOUT_MS = SYNC_WAIT_TIMEOUT_MS;
@@ -587,7 +591,9 @@ export class DailySummaryComponent implements OnInit, OnDestroy, AfterViewInit {
         filteredTasks = tasksI.filter((task) =>
           !!(task as Task).parentId
             ? (
-                taskState.entities[(task as Task).parentId as string] as Task
+                taskState.entities[
+                  getRootTaskId((task as Task).id, taskState.entities)
+                ] as Task
               )?.tagIds?.includes(activeId)
             : (task as Task).tagIds?.includes(activeId),
         ) as Task[];
@@ -600,7 +606,8 @@ export class DailySummaryComponent implements OnInit, OnDestroy, AfterViewInit {
           task.subTaskIds?.length
             ? {
                 ...task,
-                subTasks: task.subTaskIds
+                // nested sub tasks: every level, flat, parents first
+                subTasks: getDescendantIds(task.id, taskState.entities)
                   .map((tid) => taskState.entities[tid])
                   .filter((t) => t),
               }

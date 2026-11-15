@@ -4,6 +4,7 @@ import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions'
 import { PLAINSPACE_TYPE } from '../../issue/issue.const';
 import { INBOX_PROJECT } from '../../project/project.const';
 import { isBlankTask } from '../util/is-blank-task';
+import { flattenNestedSubTasks } from '../util/task-tree.util';
 
 /** Fixed on purpose: no setting (see docs/plans/2026-10-18-recently-deleted-tasks.md). */
 export const RECENTLY_DELETED_RETENTION_DAYS = 30;
@@ -74,7 +75,10 @@ export const getRecentlyDeletedEntriesFromAction = (
   if (action.type === TaskSharedActions.deleteTask.type) {
     const { task } = action as ReturnType<typeof TaskSharedActions.deleteTask>;
     if (!isTaskLike(task)) return [];
-    const subTasks = Array.isArray(task.subTasks) ? task.subTasks : [];
+    // nested sub tasks: every level of the payload's sub task tree
+    const subTasks = Array.isArray(task.subTasks)
+      ? flattenNestedSubTasks(task.subTasks.filter(isTaskLike))
+      : [];
     return createEntry(task, subTasks, deletedAt);
   }
 
@@ -97,11 +101,16 @@ export const getRecentlyDeletedEntriesFromAction = (
       }
     }
     const deletedIds = new Set(taskIds);
+    // nested sub tasks: every level below the given task, parents first
+    const getDescendants = (id: string, seen = new Set<string>([id])): Task[] =>
+      (childrenByParentId.get(id) ?? [])
+        .filter((child) => !seen.has(child.id) && !!seen.add(child.id))
+        .flatMap((child) => [child, ...getDescendants(child.id, seen)]);
     return taskIds.flatMap((id) => {
       const task = byId.get(id);
       // A subtask deleted together with its parent belongs to the parent's entry.
       if (!task || (task.parentId && deletedIds.has(task.parentId))) return [];
-      return createEntry(task, childrenByParentId.get(id) ?? [], deletedAt);
+      return createEntry(task, getDescendants(id), deletedAt);
     });
   }
 

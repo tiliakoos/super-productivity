@@ -1,7 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { Store } from '@ngrx/store';
 import { TaskService } from './task.service';
-import { TaskWithSubTasks } from './task.model';
+import { Task, TaskWithSubTasks } from './task.model';
 import { addSubTask } from './store/task.actions';
 import { PlannerActions } from '../planner/store/planner.actions';
 import { isWontDoTask } from './util/is-wont-do-task';
@@ -37,11 +37,17 @@ export class TaskDuplicateService {
       false,
     );
 
-    for (const subTask of task.subTasks) {
+    this._duplicateSubTasks(task.subTasks, taskId);
+
+    return taskId;
+  }
+
+  private _duplicateSubTasks(subTasks: Task[], parentId: string): void {
+    for (const subTask of subTasks) {
       const subTaskObj = this._taskService.createNewTaskWithDefaults({
         title: subTask.title,
         additional: {
-          parentId: taskId,
+          parentId,
           isDone: subTask.isDone,
           ...(isWontDoTask(subTask) && {
             doneOn: subTask.doneOn,
@@ -58,9 +64,14 @@ export class TaskDuplicateService {
       this._store.dispatch(
         addSubTask({
           task: subTaskObj,
-          parentId: taskId,
+          parentId,
         }),
       );
+      // nested sub tasks: copy every level below
+      const nested = (subTask as TaskWithSubTasks).subTasks;
+      if (nested?.length) {
+        this._duplicateSubTasks(nested, subTaskObj.id);
+      }
       if (subTask.dueDay) {
         this._store.dispatch(
           PlannerActions.planTaskForDay({
@@ -70,7 +81,5 @@ export class TaskDuplicateService {
         );
       }
     }
-
-    return taskId;
   }
 }

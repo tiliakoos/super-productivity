@@ -24,6 +24,7 @@ import {
   RECENTLY_DELETED_RECORDED_ACTION_TYPES,
   RecentlyDeletedEntry,
 } from './recently-deleted.util';
+import { flattenNestedSubTasks } from '../util/task-tree.util';
 
 type TaskEntities = Readonly<Record<string, Task | undefined>>;
 
@@ -242,8 +243,15 @@ const withLocalSnapshots = (action: Action, lookup: TaskLookup): Action => {
       const task = lookup.get(id);
       if (!task) continue;
       snapshots.set(task.id, task);
-      for (const subTask of lookup.childrenOf(task.id)) {
-        snapshots.set(subTask.id, subTask);
+      // nested sub tasks: every level below the task
+      const queue = [task.id];
+      while (queue.length) {
+        for (const subTask of lookup.childrenOf(queue.shift() as string)) {
+          if (!snapshots.has(subTask.id)) {
+            snapshots.set(subTask.id, subTask);
+            queue.push(subTask.id);
+          }
+        }
       }
     }
     return { ...action, tasks: [...snapshots.values()] } as Action;
@@ -253,8 +261,21 @@ const withLocalSnapshots = (action: Action, lookup: TaskLookup): Action => {
     const { task } = action as { task?: { id?: unknown; subTasks?: unknown } };
     if (!task || typeof task.id !== 'string') return action;
     const sent = Array.isArray(task.subTasks) ? (task.subTasks as Task[]) : [];
-    const sentIds = new Set(sent.map((t) => t?.id));
-    const localOnly = lookup.childrenOf(task.id).filter((t) => !sentIds.has(t.id));
+    const sentIds = new Set(
+      flattenNestedSubTasks(sent.filter((t) => !!t)).map((t) => t.id),
+    );
+    // nested sub tasks: every level only this device has
+    const localOnly: Task[] = [];
+    const seen = new Set<string>([task.id]);
+    const queue = [task.id];
+    while (queue.length) {
+      for (const child of lookup.childrenOf(queue.shift() as string)) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        queue.push(child.id);
+        if (!sentIds.has(child.id)) localOnly.push(child);
+      }
+    }
     if (!localOnly.length) return action;
     return { ...action, task: { ...task, subTasks: [...sent, ...localOnly] } } as Action;
   }

@@ -106,6 +106,7 @@ import { DeletedTaskIssueSidecarService } from '../issue/two-way-sync/deleted-ta
 import { TimeBlockDeleteSidecarService } from '../calendar-integration/time-block/time-block-delete-sidecar.service';
 import { getDeadlineAutoPlanFields } from './util/get-deadline-auto-plan-fields';
 import { TaskTimeSyncService } from './task-time-sync.service';
+import { getAncestorIds, getDescendantIds } from './util/task-tree.util';
 
 @Injectable({
   providedIn: 'root',
@@ -200,6 +201,7 @@ export class TaskService {
   private _lastFocusedTaskEl: HTMLElement | null = null;
   private _allTasks$: Observable<Task[]> = this._store.pipe(select(selectAllTasks));
   private _taskEntities = this._store.selectSignal(selectTaskEntities);
+  private _tagIdsOf = (id: string): string[] => this._taskEntities()[id]?.tagIds ?? [];
 
   private _unsyncedContexts: Map<
     string,
@@ -477,10 +479,8 @@ export class TaskService {
   }
 
   remove(task: TaskWithSubTasks): void {
-    this._taskTimeSync.clearOne(task.id);
-    // Clear via subTaskIds (always present) not subTasks: the keyboard-delete path
-    // passes a raw Task entity whose subTasks array is undefined (see #9280).
-    task.subTaskIds.forEach((id) => this._taskTimeSync.clearOne(id));
+    const ids = [task.id, ...getDescendantIds(task.id, this._taskEntities())];
+    ids.forEach((id) => this._taskTimeSync.clearOne(id));
     this._store.dispatch(TaskSharedActions.deleteTask({ task }));
   }
 
@@ -489,7 +489,7 @@ export class TaskService {
     // deleteIssueOnBulkTaskDelete$ effect can pick it up.
     const entities = this._taskEntities();
     const affectedTaskIds = Array.from(
-      new Set(taskIds.flatMap((id) => [id, ...(entities[id]?.subTaskIds ?? [])])),
+      new Set(taskIds.flatMap((id) => [id, ...getDescendantIds(id, entities)])),
     );
     const tasks = affectedTaskIds
       .map((id) => entities[id])
@@ -522,7 +522,7 @@ export class TaskService {
       task &&
       !task.parentId
         ? unique([
-            ...task.subTaskIds,
+            ...getDescendantIds(id, entities),
             ...Object.values(entities)
               .filter(
                 (candidate): candidate is Task =>
@@ -641,7 +641,7 @@ export class TaskService {
     if (parentId && !isSubTaskAsMain) {
       const parentTask = await this.getByIdOnce$(parentId).toPromise();
       if (parentTask.subTaskIds[0] === id) {
-        return await this.moveUp(parentId, undefined, false);
+        return await this.moveUp(parentId, parentTask.parentId, false);
       } else {
         this._store.dispatch(moveSubTaskUp({ id, parentId }));
       }
@@ -694,7 +694,7 @@ export class TaskService {
     if (parentId && !isSubTaskAsMain) {
       const parentTask = await this.getByIdOnce$(parentId).toPromise();
       if (parentTask.subTaskIds[parentTask.subTaskIds.length - 1] === id) {
-        return await this.moveDown(parentId, undefined, false);
+        return await this.moveDown(parentId, parentTask.parentId, false);
       } else {
         this._store.dispatch(moveSubTaskDown({ id, parentId }));
       }
@@ -1289,12 +1289,12 @@ export class TaskService {
   }
 
   async convertToMainTask(task: Task): Promise<void> {
-    const parent = await this.getByIdOnce$(task.parentId as string).toPromise();
     const now = Date.now();
+    const entities = this._taskEntities();
     this._store.dispatch(
       TaskSharedActions.convertToMainTask({
         task,
-        parentTagIds: parent.tagIds,
+        parentTagIds: unique(getAncestorIds(task.id, entities).flatMap(this._tagIdsOf)),
         isPlanForToday: this._workContextService.activeWorkContextId === TODAY_TAG.id,
         today: this._dateService.todayStr(),
         modified: now,
@@ -1438,7 +1438,7 @@ export class TaskService {
           ? {
               task: archiveTaskWithSameIssue as Task,
               subTasks: archiveTaskWithSameIssue.subTaskIds
-                ? archiveTaskWithSameIssue.subTaskIds
+                ? getDescendantIds(archiveTaskWithSameIssue.id, archiveTaskState.entities)
                     .map((id) => archiveTaskState.entities[id])
                     .filter((task): task is Task => !!task)
                 : null,

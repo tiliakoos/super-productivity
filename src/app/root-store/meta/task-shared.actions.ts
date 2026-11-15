@@ -67,16 +67,21 @@ export const collectArchivedTaskEntityIds = (tasks: readonly unknown[]): string[
     return typeof id === 'string' && id !== '' ? [id] : [];
   });
   const ids = new Set<string>(topLevelIds);
-  for (const task of tasks) {
+  // nested sub tasks: walk every level of the payload
+  const addSubTaskIds = (task: unknown, depth: number): void => {
     const taskLike = asArchivedTaskLike(task);
-    if (!taskLike) continue;
+    if (!taskLike || depth > 10) return;
     for (const id of asArray(taskLike.subTaskIds)) {
       if (typeof id === 'string' && id !== '') ids.add(id);
     }
     for (const subTask of asArray(taskLike.subTasks)) {
       const id = asArchivedTaskLike(subTask)?.id;
       if (typeof id === 'string' && id !== '') ids.add(id);
+      addSubTaskIds(subTask, depth + 1);
     }
+  };
+  for (const task of tasks) {
+    addSubTaskIds(task, 0);
   }
   // The server rejects an op declaring more ids than this (INVALID_ENTITY_ID),
   // which would strand that archive unsynced forever. Degrading to the

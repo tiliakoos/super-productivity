@@ -169,7 +169,7 @@
     </button>
   }
 
-  @if (isAdvancedControls() && !task.parentId && !task.isDone) {
+  @if (isAdvancedControls() && canAddSubTask && !task.isDone) {
     <button
       (click)="addSubTask()"
       mat-menu-item

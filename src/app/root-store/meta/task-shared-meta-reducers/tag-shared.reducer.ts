@@ -27,6 +27,7 @@ import {
   adapter as issueProviderAdapter,
 } from '../../../features/issue/store/issue-provider.reducer';
 import { IssueProvider, IssueProviderState } from '../../../features/issue/issue.model';
+import { getDescendantIds } from '../../../features/tasks/util/task-tree.util';
 
 /**
  * Extended state type that includes feature stores not in RootState.
@@ -156,7 +157,8 @@ const removeOrphanedTasks = (
     if (parent) {
       allTaskIdsToRemove.push(parentId);
       if (parent.subTaskIds?.length) {
-        allTaskIdsToRemove.push(...parent.subTaskIds);
+        // nested sub tasks: every level below the task
+        allTaskIdsToRemove.push(...getDescendantIds(parentId, taskState.entities));
       }
     }
   }

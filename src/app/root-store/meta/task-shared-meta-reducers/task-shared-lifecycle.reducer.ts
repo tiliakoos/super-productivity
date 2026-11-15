@@ -17,6 +17,10 @@ import { INBOX_PROJECT } from '../../../features/project/project.const';
 import { TASK_REPEAT_CFG_FEATURE_NAME } from '../../../features/task-repeat-cfg/store/task-repeat-cfg.selectors';
 import { unique } from '../../../util/unique';
 import {
+  flattenNestedSubTasks,
+  getAncestorIds,
+} from '../../../features/tasks/util/task-tree.util';
+import {
   ActionHandlerMap,
   collectTaskAndSubTaskIds,
   getProjectOrUndefined,
@@ -38,7 +42,7 @@ const handleMoveToArchive = (state: RootState, tasks: TaskWithSubTasks[]): RootS
     tasks.map((task) => task.id),
     tasks.flatMap((task) => [
       ...(task.subTaskIds ?? []),
-      ...task.subTasks.map((subTask) => subTask.id),
+      ...flattenNestedSubTasks(task.subTasks).map((subTask) => subTask.id),
     ]),
   );
 
@@ -107,20 +111,40 @@ const handleRestoreTask = (
     projectId: normalizedRestoredTask.projectId ?? '',
   };
   const declaredSubTaskIds = new Set(restoredTask.subTaskIds ?? []);
-  const restoredSubTasks = subTasks
-    .filter((subTask) => {
-      const existingSubTask = state[TASK_FEATURE_NAME].entities[subTask.id];
-      const belongsToRestoredTask =
+  // Nested sub tasks: a payload entry belongs to the restored tree when its
+  // parent is the root or an already accepted entry. Repeat until stable, as
+  // the payload order is not guaranteed.
+  const flatSubTasks = flattenNestedSubTasks(subTasks);
+  const acceptedParentIdById = new Map<string, string>();
+  let isChanged = true;
+  while (isChanged) {
+    isChanged = false;
+    for (const subTask of flatSubTasks) {
+      if (acceptedParentIdById.has(subTask.id) || subTask.id === restoredTask.id) {
+        continue;
+      }
+      const parentId =
         subTask.parentId === restoredTask.id ||
-        (!subTask.parentId && declaredSubTaskIds.has(subTask.id));
-      return (
-        belongsToRestoredTask &&
-        (!existingSubTask || existingSubTask.parentId === restoredTask.id)
-      );
-    })
+        (!subTask.parentId && declaredSubTaskIds.has(subTask.id))
+          ? restoredTask.id
+          : subTask.parentId && acceptedParentIdById.has(subTask.parentId)
+            ? subTask.parentId
+            : undefined;
+      if (!parentId) {
+        continue;
+      }
+      const existingSubTask = state[TASK_FEATURE_NAME].entities[subTask.id];
+      if (!existingSubTask || existingSubTask.parentId === parentId) {
+        acceptedParentIdById.set(subTask.id, parentId);
+        isChanged = true;
+      }
+    }
+  }
+  const restoredSubTasks = flatSubTasks
+    .filter((subTask) => acceptedParentIdById.has(subTask.id))
     .map((subTask) => ({
       ...normalizeRestoredTask(subTask, state),
-      parentId: restoredTask.id,
+      parentId: acceptedParentIdById.get(subTask.id) as string,
       projectId: restoredTask.projectId,
     }));
 
@@ -148,8 +172,20 @@ const handleRestoreTask = (
       updatedState[TASK_FEATURE_NAME].entities[id]?.parentId === restoredTask.id,
   );
   const normalizedSubTaskIds = unique(verifiedSubTaskIds);
-  const restoredTaskIds = [restoredTask.id, ...normalizedSubTaskIds];
-  const restoredTaskUpdates: Update<Task>[] = normalizedSubTaskIds.map((id) => ({
+  // nested sub tasks below the direct children
+  const deeperSubTaskIds = restoreCandidateIds.filter(
+    (id) =>
+      id !== restoredTask.id &&
+      !normalizedSubTaskIds.includes(id) &&
+      getAncestorIds(id, updatedState[TASK_FEATURE_NAME].entities).includes(
+        restoredTask.id,
+      ),
+  );
+  const restoredTaskIds = [restoredTask.id, ...normalizedSubTaskIds, ...deeperSubTaskIds];
+  const restoredTaskUpdates: Update<Task>[] = [
+    ...normalizedSubTaskIds,
+    ...deeperSubTaskIds,
+  ].map((id) => ({
     id,
     changes: { projectId: restoredTask.projectId },
   }));

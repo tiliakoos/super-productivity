@@ -10,6 +10,10 @@ import { Action, ActionReducer } from '@ngrx/store';
 import { TODAY_TAG } from '../../features/tag/tag.const';
 import { Log } from '../../core/log';
 import { PersistentAction } from '../../op-log/core/persistent-action.interface';
+import {
+  flattenNestedSubTasks,
+  getDescendantIds,
+} from '../../features/tasks/util/task-tree.util';
 
 /**
  * Payload structure for restoring a deleted task.
@@ -92,16 +96,25 @@ export const undoTaskDeleteMetaReducer = (
 // =============================================================================
 
 /**
- * Creates a dictionary of all tasks to be deleted (main task + subtasks)
+ * Creates a dictionary of all tasks to be deleted (main task + every level of
+ * sub tasks), preferring the state entities over the payload copies.
  */
-const createDeletedTaskEntities = (task: TaskWithSubTasks): Dictionary<Task> => {
-  return {
-    [task.id]: task,
-    ...(task.subTasks?.reduce<Dictionary<Task>>(
-      (acc, subTask) => ({ ...acc, [subTask.id]: subTask }),
-      {},
-    ) || {}),
-  };
+const createDeletedTaskEntities = (
+  state: RootState,
+  task: TaskWithSubTasks,
+): Dictionary<Task> => {
+  const entities = state[TASK_FEATURE_NAME].entities;
+  const { subTasks, ...plainTask } = task;
+  const result: Dictionary<Task> = { [task.id]: entities[task.id] ?? plainTask };
+  for (const subTask of flattenNestedSubTasks(subTasks)) {
+    result[subTask.id] = entities[subTask.id] ?? subTask;
+  }
+  for (const id of getDescendantIds(task.id, entities)) {
+    if (entities[id]) {
+      result[id] = entities[id];
+    }
+  }
+  return result;
 };
 
 /**
@@ -168,8 +181,10 @@ const captureTaskDeletePayload = (
   state: RootState,
   task: TaskWithSubTasks,
 ): RestoreDeletedTaskPayload => {
-  const deletedTaskEntities = createDeletedTaskEntities(task);
-  const allDeletedTasks = [task, ...(task.subTasks || [])];
+  const deletedTaskEntities = createDeletedTaskEntities(state, task);
+  const allDeletedTasks = Object.values(deletedTaskEntities).filter(
+    (t): t is Task => !!t,
+  );
   const tagTaskIdMap = buildTagTaskIdMap(state, allDeletedTasks);
 
   // Handle subtask deletion - capture parent context

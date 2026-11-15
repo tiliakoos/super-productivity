@@ -55,6 +55,7 @@ import { TaskLog } from '../../../core/log';
 import { devError } from '../../../util/dev-error';
 import { moveValidIdsToFront } from '../util/move-valid-ids-to-front';
 import { applyClearedFields } from '../../../util/cleared-update-fields';
+import { canMoveTaskUnderParent, getDescendantIds } from '../util/task-tree.util';
 
 export { taskAdapter };
 
@@ -304,14 +305,22 @@ export const taskReducer = createReducer<TaskState>(
           currentTaskId: null,
         };
       }
-      const subTaskIds = task.subTaskIds;
+      // Only leaf tasks are tracked: descend through (nested) sub tasks.
       let taskToStartId = id;
-      if (subTaskIds && subTaskIds.length) {
+      const visited = new Set<string>([id]);
+      let subTaskIds = task.subTaskIds;
+      while (subTaskIds && subTaskIds.length) {
         // A sub task can be gone for the same reason — skip it instead of throwing.
-        const undoneTasks = subTaskIds
+        const existing = subTaskIds
           .map((tid) => state.entities[tid])
-          .filter((ta): ta is Task => !!ta && !ta.isDone);
-        taskToStartId = undoneTasks.length ? undoneTasks[0].id : subTaskIds[0];
+          .filter((ta): ta is Task => !!ta && !visited.has(ta.id));
+        if (!existing.length) {
+          break;
+        }
+        const next = existing.find((ta) => !ta.isDone) || existing[0];
+        taskToStartId = next.id;
+        visited.add(next.id);
+        subTaskIds = next.subTaskIds;
       }
       return {
         ...state,
@@ -426,6 +435,15 @@ export const taskReducer = createReducer<TaskState>(
       return state;
     }
 
+    // Keep nested sub tasks within the max depth
+    if (!canMoveTaskUnderParent(taskId, targetTaskId, state.entities)) {
+      TaskLog.warn('Ignoring moveSubTask beyond max task depth', {
+        taskId,
+        targetTaskId,
+      });
+      return state;
+    }
+
     let newState = state;
     const oldPar = getTaskById(srcTaskId, state);
     const newPar = getTaskById(targetTaskId, state);
@@ -466,6 +484,14 @@ export const taskReducer = createReducer<TaskState>(
       },
       newState,
     );
+    // nested sub tasks follow the project of the moved task
+    const descendantIds = getDescendantIds(taskId, newState.entities);
+    if (descendantIds.length) {
+      newState = taskAdapter.updateMany(
+        descendantIds.map((id) => ({ id, changes: { projectId: newPar.projectId } })),
+        newState,
+      );
+    }
 
     return newState;
   }),

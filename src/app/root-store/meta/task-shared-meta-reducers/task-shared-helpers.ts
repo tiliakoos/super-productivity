@@ -20,6 +20,7 @@ import {
 import { unique } from '../../../util/unique';
 import { TODAY_TAG } from '../../../features/tag/tag.const';
 import { TaskSharedActions } from '../task-shared.actions';
+import { getDescendantIds } from '../../../features/tasks/util/task-tree.util';
 
 // =============================================================================
 // TYPES
@@ -69,21 +70,36 @@ export const collectTaskAndSubTaskIds = (
   parentTaskIds: string[],
   payloadSubTaskIds: string[] | undefined = [],
 ): string[] => {
-  const parentIdSet = new Set(parentTaskIds);
   const taskIds = new Set([...parentTaskIds, ...(payloadSubTaskIds ?? [])]);
   const taskState = state[TASK_FEATURE_NAME];
 
-  for (const parentTaskId of parentTaskIds) {
-    const parentTask = taskState.entities[parentTaskId];
-    for (const subTaskId of parentTask?.subTaskIds ?? []) {
-      taskIds.add(subTaskId);
+  // reverse lookup: children by parentId
+  const childIdsByParentId = new Map<string, string[]>();
+  for (const taskId of taskState.ids as string[]) {
+    const parentId = taskState.entities[taskId]?.parentId;
+    if (parentId) {
+      const childIds = childIdsByParentId.get(parentId);
+      if (childIds) {
+        childIds.push(taskId);
+      } else {
+        childIdsByParentId.set(parentId, [taskId]);
+      }
     }
   }
 
-  for (const taskId of taskState.ids as string[]) {
-    const task = taskState.entities[taskId];
-    if (task?.parentId && parentIdSet.has(task.parentId)) {
-      taskIds.add(taskId);
+  // nested sub tasks: walk every level below the given tasks
+  const queue = Array.from(taskIds);
+  while (queue.length) {
+    const id = queue.shift() as string;
+    const childIds = [
+      ...(taskState.entities[id]?.subTaskIds ?? []),
+      ...(childIdsByParentId.get(id) ?? []),
+    ];
+    for (const childId of childIds) {
+      if (!taskIds.has(childId)) {
+        taskIds.add(childId);
+        queue.push(childId);
+      }
     }
   }
 
@@ -329,7 +345,7 @@ export const removeTasksFromList = (taskIds: string[], toRemove: string[]): stri
 /**
  * A deleteProject captured from a stale client can omit task recreations that
  * have already reached this replay prefix. Expand only through the deleted
- * project's current root lists and those roots' canonical direct children.
+ * project's current root lists and those roots' canonical (nested) sub tasks.
  * Tasks merely carrying the projectId are deliberately excluded: scanning the
  * whole TASK store would turn a bounded relationship cascade into a global one.
  */
@@ -343,8 +359,8 @@ export const enrichDeleteProjectAction = (state: RootState, action: Action): Act
   if (!project) return action;
 
   const rootTaskIds = unique([...project.taskIds, ...project.backlogTaskIds]);
-  const childTaskIds = rootTaskIds.flatMap(
-    (taskId) => state[TASK_FEATURE_NAME].entities[taskId]?.subTaskIds ?? [],
+  const childTaskIds = rootTaskIds.flatMap((taskId) =>
+    getDescendantIds(taskId, state[TASK_FEATURE_NAME].entities),
   );
   const allTaskIds = unique([
     ...deleteProjectAction.allTaskIds,

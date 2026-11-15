@@ -34,6 +34,56 @@ export const isCalendarIssueTask = (task: Task | undefined): task is Task =>
   !!task.issueType &&
   (task.issueType === 'ICAL' || isPluginIssueProvider(task.issueType));
 
+// Per-id cache for nested sub tasks, so an unchanged sub tree keeps its object
+// refs across recomputes (task rows are OnPush and re-render on a new ref).
+const _nestedSubTaskCache = new Map<
+  string,
+  { task: Task; subTasks: Task[]; result: TaskWithSubTasks }
+>();
+const NESTED_SUB_TASK_CACHE_MAX = 2000;
+
+/**
+ * Resolves sub task ids to their entities. A sub task that has sub tasks of its
+ * own is returned as a `TaskWithSubTasks` with its (recursively resolved)
+ * `subTasks`, so nested sub task lists can render; leaves stay the plain entity.
+ */
+export const resolveSubTasks = (
+  subTaskIds: readonly string[],
+  entities: Readonly<Record<string, Task | undefined>>,
+  isReportMissing = false,
+  seen: Set<string> = new Set(),
+): Task[] => {
+  const subTasks: Task[] = [];
+  for (const id of subTaskIds) {
+    const subTask = entities[id];
+    if (!subTask) {
+      if (isReportMissing) {
+        devError('Task data not found for ' + id);
+      }
+      continue;
+    }
+    if (!subTask.subTaskIds?.length || seen.has(id)) {
+      subTasks.push(subTask);
+      continue;
+    }
+    seen.add(id);
+    const nested = resolveSubTasks(subTask.subTaskIds, entities, isReportMissing, seen);
+    seen.delete(id);
+    const cached = _nestedSubTaskCache.get(id);
+    if (cached && cached.task === subTask && fastArrayCompare(cached.subTasks, nested)) {
+      subTasks.push(cached.result);
+    } else {
+      if (_nestedSubTaskCache.size > NESTED_SUB_TASK_CACHE_MAX) {
+        _nestedSubTaskCache.clear();
+      }
+      const result: TaskWithSubTasks = { ...subTask, subTasks: nested };
+      _nestedSubTaskCache.set(id, { task: subTask, subTasks: nested, result });
+      subTasks.push(result);
+    }
+  }
+  return subTasks;
+};
+
 export const mapSubTasksToTask = (
   task: Task | null,
   s: TaskState,
@@ -41,36 +91,32 @@ export const mapSubTasksToTask = (
   if (!task) {
     return null;
   }
-  const subTasks: Task[] = [];
-  for (const id of task.subTaskIds) {
-    const subTask = s.entities[id];
-    if (subTask) {
-      subTasks.push(subTask);
-    } else {
-      devError('Task data not found for ' + id);
-    }
-  }
   return {
     ...task,
-    subTasks,
+    subTasks: resolveSubTasks(task.subTaskIds, s.entities, true),
   };
 };
 
+/** Flattens tasks with all their (nested) sub tasks, parents first. */
 export const flattenTasks = (tasksIN: TaskWithSubTasks[]): TaskWithSubTasks[] => {
   const flatTasks: TaskWithSubTasks[] = [];
+  const add = (task: TaskWithSubTasks | Task, isSubTask: boolean): void => {
+    const subTasks = (task as TaskWithSubTasks).subTasks;
+    // NOTE: in order for the model to be identical sub tasks get an empty subTasks array
+    flatTasks.push(isSubTask ? { ...task, subTasks: [] } : (task as TaskWithSubTasks));
+    if (subTasks && subTasks.length > 0) {
+      for (const subTask of subTasks) {
+        if (subTask !== null && subTask !== undefined) {
+          add(subTask, true);
+        }
+      }
+    }
+  };
   tasksIN.forEach((task) => {
     if (!task) {
       return;
     }
-    flatTasks.push(task);
-    if (task.subTasks && task.subTasks.length > 0) {
-      // NOTE: in order for the model to be identical we add an empty subTasks array
-      for (const subTask of task.subTasks) {
-        if (subTask !== null && subTask !== undefined) {
-          flatTasks.push({ ...subTask, subTasks: [] });
-        }
-      }
-    }
+    add(task, false);
   });
   return flatTasks;
 };
@@ -132,8 +178,7 @@ export const selectStartableTasks = createSelector(
     return s.ids
       .map((id) => s.entities[id])
       .filter(
-        (task): task is Task =>
-          !!task && !task.isDone && (!!task.parentId || task.subTaskIds.length === 0),
+        (task): task is Task => !!task && !task.isDone && task.subTaskIds.length === 0,
       );
   },
 );
@@ -372,13 +417,7 @@ const createStableWithSubTasksMapper = (): ((
         continue;
       }
       seen.add(entry.id);
-      const subTasks: Task[] = [];
-      for (const sid of entry.subTaskIds) {
-        const sub = entities[sid];
-        if (sub) {
-          subTasks.push(sub);
-        }
-      }
+      const subTasks = resolveSubTasks(entry.subTaskIds, entities);
       const cached = cache.get(entry.id);
       let built: TaskWithSubTasks;
       if (cached && cached.task === task && fastArrayCompare(cached.subTasks, subTasks)) {
@@ -824,15 +863,7 @@ export const selectTasksWithSubTasksByIdsFactory = (
         seen.add(id);
 
         // Resolve current subtask entities (same shaping as mapSubTasksToTask).
-        const subTasks: Task[] = [];
-        for (const subTaskId of task.subTaskIds) {
-          const subTask = state.entities[subTaskId];
-          if (subTask) {
-            subTasks.push(subTask);
-          } else {
-            devError('Task data not found for ' + subTaskId);
-          }
-        }
+        const subTasks = resolveSubTasks(task.subTaskIds, state.entities, true);
 
         const cached = cache.get(id);
         if (

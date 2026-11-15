@@ -1017,10 +1017,23 @@ describe('taskSharedCrudMetaReducer', () => {
       });
     });
 
-    it('should not convert under a target parent that is itself a subtask', () => {
-      // Nesting under a subtask would create a third level the UI cannot render
-      // (orphaning the task) and leave the grandparent's time aggregation stale.
-      const testState = createConvertToSubTaskState({}, { parentId: 'grandparent' });
+    it('should not convert under a target parent on the deepest level', () => {
+      // parent-task is the 4th level (l0 -> l1 -> l2 -> parent-task), so a
+      // sub task under it would exceed MAX_TASK_DEPTH.
+      const baseTestState = createConvertToSubTaskState({}, { parentId: 'l2' });
+      const testState: RootState = {
+        ...baseTestState,
+        [TASK_FEATURE_NAME]: {
+          ...baseTestState[TASK_FEATURE_NAME],
+          ids: [...baseTestState[TASK_FEATURE_NAME].ids, 'l0', 'l1', 'l2'],
+          entities: {
+            ...baseTestState[TASK_FEATURE_NAME].entities,
+            l0: createMockTask({ id: 'l0', subTaskIds: ['l1'] }),
+            l1: createMockTask({ id: 'l1', parentId: 'l0', subTaskIds: ['l2'] }),
+            l2: createMockTask({ id: 'l2', parentId: 'l1', subTaskIds: ['parent-task'] }),
+          },
+        },
+      };
       const action = createConvertToSubTaskAction();
 
       metaReducer(testState, action);

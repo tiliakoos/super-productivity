@@ -27,6 +27,7 @@ import {
 import { DateService } from '../../../core/date/date.service';
 import { filterOutTodayTag } from '../../../root-store/meta/task-shared-meta-reducers/task-shared-helpers';
 import { fastArrayCompare } from '../../../util/fast-array-compare';
+import { getDescendantIds, hasAncestorInSet } from '../util/task-tree.util';
 
 @Injectable()
 export class TaskInternalEffects {
@@ -215,7 +216,8 @@ export class TaskInternalEffects {
           !!currentTask.dueDay ||
           typeof currentTask.dueWithTime === 'number' ||
           todayTaskIds.includes(currentTaskId) ||
-          (!!currentTask.parentId && todayTaskIds.includes(currentTask.parentId))
+          (!!currentTask.parentId &&
+            hasAncestorInSet(currentTaskId, state.entities, new Set(todayTaskIds)))
         ) {
           return EMPTY;
         }
@@ -325,21 +327,28 @@ export class TaskInternalEffects {
 
     const filterUndoneNotCurrent = (id: string): boolean =>
       !(entities[id] as Task).isDone && id !== oldCurrentId;
+    // only leaf tasks are selectable (nested sub tasks included)
     const flattenToSelectable = (arr: string[]): string[] =>
       arr.reduce((acc: string[], next: string) => {
         return (entities[next] as Task).subTaskIds.length > 0
-          ? acc.concat((entities[next] as Task).subTaskIds)
+          ? acc.concat(
+              getDescendantIds(next, entities).filter(
+                (id) => !entities[id]?.subTaskIds.length,
+              ),
+            )
           : acc.concat(next);
       }, []);
 
     if (oldCurrentId) {
       const oldCurTask = entities[oldCurrentId];
       if (oldCurTask && oldCurTask.parentId) {
-        (entities[oldCurTask.parentId] as Task).subTaskIds.some((id) => {
-          return id !== oldCurrentId && !(entities[id] as Task).isDone
-            ? (nextId = id) && true // assign !!!
-            : false;
-        });
+        flattenToSelectable((entities[oldCurTask.parentId] as Task).subTaskIds).some(
+          (id) => {
+            return id !== oldCurrentId && !(entities[id] as Task).isDone
+              ? (nextId = id) && true // assign !!!
+              : false;
+          },
+        );
       }
 
       if (!nextId) {

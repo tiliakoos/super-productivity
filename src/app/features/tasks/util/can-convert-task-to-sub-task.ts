@@ -1,4 +1,5 @@
 import { Task } from '../task.model';
+import { canTaskHaveSubTasks, TaskTreeLookup } from './task-tree.util';
 
 type ConvertibleTaskFields = Pick<
   Task,
@@ -30,15 +31,15 @@ export const canConvertTaskToSubTask = (task: ConvertibleTaskFields): boolean =>
  * meta-reducers so their guards stay in lock-step — if they diverge, one
  * reducer can strip the task from its section while the other leaves it
  * top-level. Rejects a missing target, self-nesting, and nesting under a task
- * that is itself a subtask (the UI renders only two levels, so deeper nesting
- * would orphan the task and leave parent time aggregation stale).
+ * that is already on the deepest level (`MAX_TASK_DEPTH`).
  */
 export const canApplyConvertToSubTask = (
   task: (ConvertibleTaskFields & Pick<Task, 'id'>) | undefined,
   targetParent: Pick<Task, 'id' | 'parentId'> | undefined,
+  entities: TaskTreeLookup,
 ): boolean =>
   !!task &&
   !!targetParent &&
   task.id !== targetParent.id &&
-  !targetParent.parentId &&
+  canTaskHaveSubTasks(targetParent.id, entities) &&
   canConvertTaskToSubTask(task);

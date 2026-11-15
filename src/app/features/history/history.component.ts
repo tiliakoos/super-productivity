@@ -38,6 +38,7 @@ import { TaskSharedActions } from '../../root-store/meta/task-shared.actions';
 import { parseDbDateStr } from '../../util/parse-db-date-str';
 import { WorklogDay, WorklogMonth, WorklogYear } from '../worklog/worklog.model';
 import { DialogRecentlyDeletedComponent } from '../tasks/recently-deleted/dialog-recently-deleted/dialog-recently-deleted.component';
+import { getDescendantIds } from '../tasks/util/task-tree.util';
 
 @Component({
   selector: 'history',
@@ -185,7 +186,8 @@ export class HistoryComponent {
           let subTasks: Task[] | undefined;
           if (task.subTaskIds && task.subTaskIds.length) {
             const archiveState = await this._taskArchiveService.load();
-            subTasks = task.subTaskIds
+            // nested sub tasks: restore every level below the task
+            subTasks = getDescendantIds(task.id, archiveState.entities)
               .map((id) => archiveState.entities[id])
               .filter((t): t is Task => !!t);
           }

@@ -26,6 +26,7 @@ import {
   updateTags,
 } from './task-shared-helpers';
 import { filterOutId } from '../../../util/filter-out-id';
+import { hasAncestorInSet } from '../../../features/tasks/util/task-tree.util';
 
 // =============================================================================
 // ACTION HANDLERS
@@ -195,12 +196,17 @@ const handlePlanTasksForToday = (
     0;
 
   // Filter out tasks that don't exist, are already in today, or whose parent is in today
+  const todayTaskIdSet = new Set(todayTag.taskIds);
   const newTasksForToday = taskIds.filter((taskId) => {
     // Skip tasks that don't exist in the store (can happen during sync)
     if (!state[TASK_FEATURE_NAME].entities[taskId]) return false;
     if (todayTag.taskIds.includes(taskId)) return false;
     const parentId = parentTaskMap[taskId];
-    return !parentId || !todayTag.taskIds.includes(parentId);
+    return (
+      (!parentId || !todayTag.taskIds.includes(parentId)) &&
+      // nested sub tasks: no ancestor may be in today either
+      !hasAncestorInSet(taskId, state[TASK_FEATURE_NAME].entities, todayTaskIdSet)
+    );
   });
 
   // Filter for tasks that need updates:

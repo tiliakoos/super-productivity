@@ -761,7 +761,15 @@ describe('TaskDetailPanelComponent add sub-task', () => {
         },
         { provide: DateTimeFormatService, useValue: { currentLocale: () => 'en-US' } },
         { provide: MatDialog, useValue: {} },
-        { provide: Store, useValue: { select: () => EMPTY, dispatch: () => undefined } },
+        {
+          provide: Store,
+          useValue: {
+            select: () => EMPTY,
+            dispatch: () => undefined,
+            // no task state: the one-level rule applies
+            selectSignal: () => signal(undefined),
+          },
+        },
         { provide: TranslateService, useValue: { instant: (k: string) => k } },
         { provide: MentionConfigService, useValue: { mentionConfig$: EMPTY } },
       ],
@@ -786,7 +794,7 @@ describe('TaskDetailPanelComponent add sub-task', () => {
     expect(addSubTaskToSpy).not.toHaveBeenCalled();
   });
 
-  it('creates a sibling directly when adding a subtask from a subtask panel', () => {
+  it('creates a sibling directly when the subtask cannot have sub tasks', () => {
     const subFixture = TestBed.createComponent(TaskDetailPanelComponent);
     const subComponent = subFixture.componentInstance;
     subFixture.componentRef.setInput('task', {
