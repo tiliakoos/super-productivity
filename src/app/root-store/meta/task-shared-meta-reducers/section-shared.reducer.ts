@@ -401,7 +401,11 @@ const ACTION_HANDLERS: Record<string, Handler> = {
     const affectedTaskIds = collectTaskAndSubTaskIds(
       state,
       tasks.map((t) => t.id),
-      tasks.flatMap((t) => [...(t.subTaskIds ?? []), ...t.subTasks.map((st) => st.id)]),
+      // a sub task archived on its own may carry no `subTasks` array
+      tasks.flatMap((t) => [
+        ...(t.subTaskIds ?? []),
+        ...(t.subTasks ?? []).map((st) => st.id),
+      ]),
     );
     return withSectionStateUpdate(
       state,

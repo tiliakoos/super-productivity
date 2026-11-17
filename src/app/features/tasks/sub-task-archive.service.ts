@@ -33,9 +33,13 @@ export class SubTaskArchiveService {
       const parent = await firstValueFrom(
         this._store.select(selectTaskByIdWithSubTaskData, { id: parentId }).pipe(take(1)),
       );
-      const doneSubTasks = (parent?.subTasks ?? []).filter(
-        (subTask): subTask is TaskWithSubTasks => !!subTask && subTask.isDone,
-      );
+      // a leaf sub task comes without `subTasks`; the archive payload needs it
+      const doneSubTasks: TaskWithSubTasks[] = (parent?.subTasks ?? [])
+        .filter((subTask) => !!subTask && subTask.isDone)
+        .map((subTask) => ({
+          ...subTask,
+          subTasks: (subTask as Partial<TaskWithSubTasks>).subTasks ?? [],
+        }));
       if (!doneSubTasks.length) {
         return;
       }
