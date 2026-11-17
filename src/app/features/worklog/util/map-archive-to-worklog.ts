@@ -24,14 +24,11 @@ const _getTimeSpentOnDay = (
     task.timeSpentOnDay && !!Object.keys(task.timeSpentOnDay).length;
   if (isTimeSpentTracked) {
     return task.timeSpentOnDay;
-  } else if (task.parentId) {
-    const parentSpentOnDay = task.parentId && entities[task.parentId]!.timeSpentOnDay;
+  } else if (task.parentId && entities[task.parentId]) {
+    const parent = entities[task.parentId]!;
     const parentLogEntryDate =
-      parentSpentOnDay &&
-      (Object.keys(parentSpentOnDay)[0] ||
-        getDbDateStr(
-          entities[task.parentId]!.doneOn || entities[task.parentId]!.created,
-        ));
+      Object.keys(parent.timeSpentOnDay || {})[0] ||
+      getDbDateStr(parent.doneOn || parent.created);
     return { [parentLogEntryDate]: 1 };
   } else {
     return { [getDbDateStr(task.doneOn || task.created)]: 1 };
@@ -99,7 +96,13 @@ export const mapArchiveToWorklog = (
       const newItem: WorklogDataForDay = {
         task: task,
         parentId: task.parentId,
-        isNoRestore: noRestoreIdSet.has(task.id),
+        // A sub task is restored with its parent, unless it was archived on
+        // its own and the parent is still active (or gone).
+        isNoRestore:
+          noRestoreIdSet.has(task.id) ||
+          (!!task.parentId &&
+            !!entities[task.parentId] &&
+            !noRestoreIdSet.has(task.parentId)),
         timeSpent: timeSpentOnDay[dateStr],
       };
       if (task.parentId) {

@@ -217,10 +217,7 @@
                                                   $event
                                                 )
                                               "
-                                              [canRestore]="
-                                                !logEntry.task?.parentId &&
-                                                !logEntry.isNoRestore
-                                              "
+                                              [canRestore]="!logEntry.isNoRestore"
                                               [dateStr]="worklogForDay.value.dateStr"
                                               [entry]="logEntry"
                                               [hasActionsColumn]="true"

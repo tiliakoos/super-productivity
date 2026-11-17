@@ -32,9 +32,10 @@ export const getCompleteStateForWorkContext = (
       ? _filterIdsForTag(taskState, wid)
       : _filterIdsForProject(taskState, wid);
 
+  // a sub task archived on its own can have its parent still active
   const archivedIdsForTag: string[] =
     workContext.type === WorkContextType.TAG
-      ? _filterIdsForTag(archive, wid)
+      ? _filterIdsForTag(archive, wid, taskState)
       : _filterIdsForProject(archive, wid);
 
   const unarchivedEntities = _limitStateToIds(taskState, unarchivedIds);
@@ -66,11 +67,17 @@ const _filterIdsForProject = (
     return t.projectId === workContextId;
   });
 
-const _filterIdsForTag = (state: EntityState<Task>, workContextId: string): string[] =>
+const _filterIdsForTag = (
+  state: EntityState<Task>,
+  workContextId: string,
+  fallbackParentState?: EntityState<Task>,
+): string[] =>
   (state.ids as string[]).filter((id) => {
     const t = state.entities[id];
     if (!t) return false;
-    const parent = t.parentId ? state.entities[t.parentId] : undefined;
+    const parent = t.parentId
+      ? (state.entities[t.parentId] ?? fallbackParentState?.entities[t.parentId])
+      : undefined;
     return resolveDisplayTagIds(t, parent).includes(workContextId);
   });
 

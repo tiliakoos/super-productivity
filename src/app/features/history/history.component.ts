@@ -191,10 +191,13 @@ export class HistoryComponent {
               .map((id) => archiveState.entities[id])
               .filter((t): t is Task => !!t);
           }
-          const restoreToToday = {
-            today: this._dateService.todayStr(),
-            startOfNextDayDiffMs: this._dateService.getStartOfNextDayDiffMs(),
-          };
+          // a sub task goes back under its parent, not onto Today
+          const restoreToToday = task.parentId
+            ? undefined
+            : {
+                today: this._dateService.todayStr(),
+                startOfNextDayDiffMs: this._dateService.getStartOfNextDayDiffMs(),
+              };
 
           Log.log('RESTORE', { taskId: task.id, subTaskCount: subTasks?.length });
           this._store.dispatch(
