@@ -112,16 +112,18 @@ const handleRestoreTask = (
   // A sub task archived on its own goes back under its parent while that is
   // still active and has room for it; otherwise it comes back top-level.
   const taskEntities = state[TASK_FEATURE_NAME].entities;
-  const activeParent = task.parentId ? taskEntities[task.parentId] : undefined;
+  // the action carries a full Task; TaskEntity only types the fields used here
+  const archivedParentId = (task as Partial<Task>).parentId;
+  const activeParent = archivedParentId ? taskEntities[archivedParentId] : undefined;
   const restoreParent =
     activeParent &&
-    activeParent.id === task.parentId &&
+    activeParent.id === archivedParentId &&
     getTaskDepth(activeParent.id, taskEntities) < MAX_TASK_DEPTH - 1
       ? activeParent
       : undefined;
   const restoredTask = {
     ...normalizedRestoredTask,
-    ...(task.parentId ? { parentId: restoreParent?.id } : {}),
+    ...(archivedParentId ? { parentId: restoreParent?.id } : {}),
     projectId: restoreParent
       ? restoreParent.projectId
       : (normalizedRestoredTask.projectId ?? ''),
