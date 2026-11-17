@@ -19,7 +19,10 @@ import { unique } from '../../../util/unique';
 import {
   flattenNestedSubTasks,
   getAncestorIds,
+  getTaskDepth,
+  MAX_TASK_DEPTH,
 } from '../../../features/tasks/util/task-tree.util';
+import { reCalcTimesForParentIfParent } from '../../../features/tasks/store/task.reducer.util';
 import {
   ActionHandlerMap,
   collectTaskAndSubTaskIds,
@@ -106,9 +109,22 @@ const handleRestoreTask = (
     { ...task, isDone: false, doneOn: undefined },
     state,
   );
+  // A sub task archived on its own goes back under its parent while that is
+  // still active and has room for it; otherwise it comes back top-level.
+  const taskEntities = state[TASK_FEATURE_NAME].entities;
+  const activeParent = task.parentId ? taskEntities[task.parentId] : undefined;
+  const restoreParent =
+    activeParent &&
+    activeParent.id === task.parentId &&
+    getTaskDepth(activeParent.id, taskEntities) < MAX_TASK_DEPTH - 1
+      ? activeParent
+      : undefined;
   const restoredTask = {
     ...normalizedRestoredTask,
-    projectId: normalizedRestoredTask.projectId ?? '',
+    ...(task.parentId ? { parentId: restoreParent?.id } : {}),
+    projectId: restoreParent
+      ? restoreParent.projectId
+      : (normalizedRestoredTask.projectId ?? ''),
   };
   const declaredSubTaskIds = new Set(restoredTask.subTaskIds ?? []);
   // Nested sub tasks: a payload entry belongs to the restored tree when its
@@ -209,8 +225,27 @@ const handleRestoreTask = (
   };
   updatedState = removeTasksFromAllProjects(updatedState, restoredTaskIds);
 
-  // Update project
-  if (restoredTask.projectId) {
+  if (restoreParent) {
+    const parent = updatedState[TASK_FEATURE_NAME].entities[restoreParent.id];
+    if (parent) {
+      updatedState = {
+        ...updatedState,
+        [TASK_FEATURE_NAME]: reCalcTimesForParentIfParent(
+          parent.id,
+          taskAdapter.updateOne(
+            {
+              id: parent.id,
+              changes: { subTaskIds: unique([...parent.subTaskIds, restoredTask.id]) },
+            },
+            updatedState[TASK_FEATURE_NAME],
+          ),
+        ),
+      };
+    }
+  }
+
+  // Update project (a sub task is listed through its parent instead)
+  if (restoredTask.projectId && !restoreParent) {
     const project = getProjectOrUndefined(updatedState, restoredTask.projectId);
     if (project) {
       updatedState = {
