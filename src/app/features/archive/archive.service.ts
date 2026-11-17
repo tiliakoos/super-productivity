@@ -62,11 +62,45 @@ const mapTasksToArchiveFormat = (
   });
 };
 
+/**
+ * A sub task archived on its own (its parent stayed active) keeps its
+ * `parentId`, and the parent's `subTaskIds` drop it. Once the parent reaches
+ * the archive too, list the sub task there again, so the archive holds one
+ * tree that restore, flush and compression walk as usual. Only entries this
+ * write touched (as child or as parent) are relinked. Deterministic, so local
+ * and remote archive writes end up identical.
+ */
+export const relinkArchivedSubTasks = (
+  archive: TaskArchive,
+  touchedIds: ReadonlySet<string>,
+): TaskArchive => {
+  let entities = archive.entities;
+  for (const id of archive.ids as string[]) {
+    const task = entities[id];
+    const parentId = task?.parentId;
+    if (!task || !parentId || !(touchedIds.has(id) || touchedIds.has(parentId))) {
+      continue;
+    }
+    const parent = entities[parentId];
+    if (!parent || parent.subTaskIds.includes(id)) {
+      continue;
+    }
+    if (entities === archive.entities) {
+      entities = { ...entities };
+    }
+    entities[parentId] = { ...parent, subTaskIds: [...parent.subTaskIds, id] };
+  }
+  return entities === archive.entities ? archive : { ...archive, entities };
+};
+
 const replaceTasksInArchive = (
   archiveTasks: Task[],
   taskArchiveState: TaskArchive,
 ): TaskArchive => {
-  const updatedTaskArchive = taskAdapter.setMany(archiveTasks, taskArchiveState);
+  const updatedTaskArchive = relinkArchivedSubTasks(
+    taskAdapter.setMany(archiveTasks, taskArchiveState),
+    new Set(archiveTasks.map((task) => task.id)),
+  );
   const uniqueStringIds = new Set(
     updatedTaskArchive.ids.filter((id): id is string => typeof id === 'string'),
   );
