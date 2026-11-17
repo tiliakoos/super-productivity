@@ -524,18 +524,11 @@ const _moveArchivedSubTasksToUnarchivedParents = (
         taskState.entities[t.id] = t;
       }
     }
-    // copy to today if parent exists
+    // parent still active: a sub task archived on its own, which is valid
+    // (fork: archive done sub tasks); it is linked back once the parent is
+    // archived
     else if (taskMainIdSet.has(t.parentId as string)) {
-      taskState.ids.push(t.id);
-      taskMainIdSet.add(t.id);
-      taskState.entities[t.id] = t;
-      const par: TaskCopy = taskState.entities[t.parentId as string] as TaskCopy;
-
-      par.subTaskIds = unique([...(par.subTaskIds || []), t.id]);
-
-      // and delete from archive
-      removedYoungArchiveIds.add(t.id);
-      delete taskArchiveYoungState.entities[t.id];
+      return;
     }
     // make main if it doesn't
     else {

@@ -466,8 +466,12 @@ const validateSubTasks = (
       if (!task) continue;
 
       if (task.parentId && !d.archiveYoung.task.entities[task.parentId]) {
-        // Check if parent exists in archiveOld before considering it a lonely subtask
-        if (!d.archiveOld.task?.entities?.[task.parentId]) {
+        // Check if parent exists in archiveOld before considering it a lonely
+        // subtask. A sub task archived on its own has its parent still active.
+        if (
+          !d.archiveOld.task?.entities?.[task.parentId] &&
+          !d.task.entities[task.parentId]
+        ) {
           _validityError(
             `Inconsistent Task State: Lonely Sub Task in Archive ${task.id}`,
             {
