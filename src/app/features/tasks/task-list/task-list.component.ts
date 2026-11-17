@@ -64,6 +64,7 @@ import { canConvertTaskToSubTask } from '../util/can-convert-task-to-sub-task';
 import { TaskTreeService } from '../task-tree.service';
 import { TODAY_TAG } from '../../tag/tag.const';
 import { TaskMultiSelectService } from '../task-multi-select.service';
+import { SubTaskArchiveService } from '../sub-task-archive.service';
 
 export type TaskListId = 'PARENT' | 'SUB';
 export type ListModelId = DropListModelSource | string;
@@ -125,6 +126,7 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
   private _workContextService = inject(WorkContextService);
   private _store = inject(Store);
   private _taskTreeService = inject(TaskTreeService);
+  private _subTaskArchiveService = inject(SubTaskArchiveService);
   private _sectionService = inject(SectionService);
   private _issueService = inject(IssueService);
   private _taskViewCustomizerService = inject(TaskViewCustomizerService);
@@ -185,6 +187,13 @@ export class TaskListComponent implements OnDestroy, AfterViewInit {
     return this.tasks()?.filter((task) => task.isDone).length ?? 0;
   });
   allTasksLength = computed(() => this.tasks()?.length ?? 0);
+
+  moveDoneSubTasksToArchive(): void {
+    const parentId = this.parentId();
+    if (parentId) {
+      void this._subTaskArchiveService.moveDoneSubTasksToArchive(parentId);
+    }
+  }
 
   readonly dropList = viewChild(CdkDropList);
   private _clearDragPointerTracking: (() => void) | undefined;

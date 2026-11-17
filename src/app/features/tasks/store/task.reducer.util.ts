@@ -314,6 +314,9 @@ export const updateTimeEstimateForTask = (
 export const deleteTaskHelper = (
   state: TaskState,
   taskToDelete: TaskWithSubTasks | Task,
+  // Archiving a sub task on its own passes false: the archived copy keeps its
+  // time, so copying it onto the parent would count it twice in the worklog.
+  isCopyTimesAfterLast: boolean = true,
 ): TaskState => {
   // #9946: without this, an id-less task makes the `parentId === taskToDelete.id`
   // subtask lookup below match every top-level task (whose parentId is also
@@ -331,7 +334,11 @@ export const deleteTaskHelper = (
   // PARENT TASK side effects
   // also delete from parent task if any
   if (taskToDelete.parentId) {
-    stateCopy = removeTaskFromParentSideEffects(stateCopy, taskToDelete, true);
+    stateCopy = removeTaskFromParentSideEffects(
+      stateCopy,
+      taskToDelete,
+      isCopyTimesAfterLast,
+    );
   }
 
   // SUB TASK side effects

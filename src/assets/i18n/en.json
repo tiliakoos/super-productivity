@@ -1846,6 +1846,7 @@
         "MARK_NOT_IN_PROGRESS": "Clear in progress",
         "MARK_UNDONE": "Mark as not completed",
         "MARK_WONT_DO": "Won't do",
+        "MOVE_DONE_SUB_TASKS_TO_ARCHIVE": "Archive {{nr}} done",
         "MOVE_TO_BACKLOG": "Move to backlog",
         "MOVE_TO_BOTTOM": "Move to bottom",
         "MOVE_TO_OTHER_PROJECT": "Move to project",

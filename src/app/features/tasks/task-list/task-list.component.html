@@ -82,6 +82,24 @@
   }
 </div>
 
+@if (listId() === 'SUB' && parentId() && doneTasksLength() && !isHideAll()) {
+  <div class="done-task-box">
+    <button
+      (click)="moveDoneSubTasksToArchive()"
+      class="expand-tasks-btn e2e-move-done-sub-tasks-to-archive"
+      mat-button
+    >
+      <mat-icon>done_all</mat-icon>
+      <span class="expand-tasks-label">
+        {{
+          T.F.TASK.CMP.MOVE_DONE_SUB_TASKS_TO_ARCHIVE
+            | translate: { nr: doneTasksLength() }
+        }}
+      </span>
+    </button>
+  </div>
+}
+
 @if (noTasksMsg() && !allTasksLength()) {
   <div class="no-tasks">{{ noTasksMsg() }}</div>
 }

@@ -669,7 +669,7 @@ export const taskReducer = createReducer<TaskState>(
   on(TaskSharedActions.moveToArchive, (state, { tasks }) => {
     let copyState = state;
     tasks.forEach((task) => {
-      copyState = deleteTaskHelper(copyState, task);
+      copyState = deleteTaskHelper(copyState, task, false);
     });
     return {
       ...copyState,
