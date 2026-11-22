@@ -19,7 +19,12 @@ import {
 import { TaskSharedActions } from '../../root-store/meta/task-shared.actions';
 import { PlannerActions } from '../planner/store/planner.actions';
 import { DialogConfirmComponent } from '../../ui/dialog-confirm/dialog-confirm.component';
+// eslint-disable-next-line local-rules/no-sibling-feature-ui -- grandfathered feature-boundary debt (#8299)
 import { DialogScheduleTaskComponent } from '../planner/dialog-schedule-task/dialog-schedule-task.component';
+import {
+  TASK_REMINDER_OPTIONS_WITHOUT_LONG_LEAD,
+  toPersistableRemindOption,
+} from '../planner/dialog-schedule-task/task-reminder-options.const';
 import { DialogDeadlineComponent } from './dialog-deadline/dialog-deadline.component';
 import { T } from '../../t.const';
 import { getDbDateStr } from '../../util/get-db-date-str';
@@ -51,6 +56,7 @@ import { isTouchActive } from '../../util/input-intent';
 import { LocaleDatePipe } from '../../ui/pipes/locale-date.pipe';
 import { msToString } from '../../ui/duration/ms-to-string.pipe';
 import { ADD_TASK_INLINE_BTN_SELECTOR } from '../planner/add-task-inline/add-task-inline.const';
+import { TASK_CARD_LIST_ADD_BTN_SELECTOR } from './task-card-list.token';
 import { getNextPlannerAddButton } from '../planner/get-next-planner-add-button';
 import { IssueSyncStateService } from '../issue/two-way-sync/issue-sync-state.service';
 
@@ -344,7 +350,14 @@ export class TaskBulkActionService {
       this._matDialog
         .open(DialogScheduleTaskComponent, {
           autoFocus: false,
-          data: { isSelectDueOnly: true },
+          data: {
+            isSelectDueOnly: true,
+            // repeat configs hold at most a 1h lead (#11816); a mixed selection
+            // keeps every option and scheduleFor caps the repeating tasks
+            ...(tasks.every((task) => task.repeatCfgId)
+              ? { reminderOptions: TASK_REMINDER_OPTIONS_WITHOUT_LONG_LEAD }
+              : {}),
+          },
         })
         .afterClosed(),
     );
@@ -372,10 +385,12 @@ export class TaskBulkActionService {
       tasks.forEach((task) => {
         if (hasTime) {
           const due = getDateTimeFromClockString(pick.time as string, pick.date as Date);
+          const remindOption = pick.remindOption ?? TaskReminderOptionId.DoNotRemind;
+          // repeating tasks stay on the leads their series can hold (#11816)
           this._taskService.scheduleTask(
             task,
             due,
-            pick.remindOption ?? TaskReminderOptionId.DoNotRemind,
+            task.repeatCfgId ? toPersistableRemindOption(remindOption) : remindOption,
             false,
           );
           applied++;
@@ -815,13 +830,16 @@ export class TaskBulkActionService {
     if (!rowScope) {
       return null;
     }
-    const inScope = rowScope.querySelector<HTMLElement>(ADD_TASK_INLINE_BTN_SELECTOR);
-    if (inScope || rowScope.matches('[data-board-selection-scope]')) {
-      // Board panels stop here even with nothing to offer: reaching into a
-      // sibling panel is the cross-panel jump this fallback exists to avoid.
-      return inScope ?? null;
+    if (rowScope.matches('[data-board-selection-scope]')) {
+      // A board column's header "+". Board panels stop here even with nothing
+      // to offer: reaching into a sibling panel is the cross-panel jump this
+      // fallback exists to avoid.
+      return rowScope.querySelector<HTMLElement>(TASK_CARD_LIST_ADD_BTN_SELECTOR);
     }
-    return getNextPlannerAddButton(rowScope);
+    return (
+      rowScope.querySelector<HTMLElement>(ADD_TASK_INLINE_BTN_SELECTOR) ??
+      getNextPlannerAddButton(rowScope)
+    );
   }
 
   /**

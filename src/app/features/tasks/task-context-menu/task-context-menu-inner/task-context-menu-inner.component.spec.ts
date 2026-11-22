@@ -2,6 +2,7 @@ import { TaskContextMenuInnerComponent } from './task-context-menu-inner.compone
 import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { TaskService } from '../../task.service';
+import { TaskArchiveOrchestratorService } from '../../task-archive-orchestrator.service';
 import { provideMockStore, MockStore } from '@ngrx/store/testing';
 import { TaskRepeatCfgService } from '../../../task-repeat-cfg/task-repeat-cfg.service';
 import { MatDialog } from '@angular/material/dialog';
@@ -58,6 +59,7 @@ describe('TaskContextMenuInnerComponent', () => {
   let component: TaskContextMenuInnerComponent;
   let fixture: ComponentFixture<TaskContextMenuInnerComponent>;
   let taskService: jasmine.SpyObj<TaskService>;
+  let taskArchiveOrchestrator: jasmine.SpyObj<TaskArchiveOrchestratorService>;
   let taskDuplicateService: jasmine.SpyObj<TaskDuplicateService>;
   let addSubtaskInputService: jasmine.SpyObj<AddSubtaskInputService>;
   let store: MockStore;
@@ -73,11 +75,13 @@ describe('TaskContextMenuInnerComponent', () => {
       'moveToProject',
       'remove',
       'getTasksWithSubTasksByRepeatCfgId$',
-      'getArchiveTasksForRepeatCfgId',
       'update',
       'setCurrentId',
       'moveToTop',
       'moveToBottom',
+    ]);
+    taskArchiveOrchestrator = jasmine.createSpyObj('TaskArchiveOrchestratorService', [
+      'getArchiveTasksForRepeatCfgId',
     ]);
     taskService.currentTaskId.and.returnValue('some-id');
     focusModeService = jasmine.createSpyObj<FocusModeService>('FocusModeService', [
@@ -107,6 +111,7 @@ describe('TaskContextMenuInnerComponent', () => {
           provide: TaskOrderService,
           useValue: { index: () => EMPTY_TASK_ORDER_INDEX, setRank: jasmine.createSpy() },
         },
+        { provide: TaskArchiveOrchestratorService, useValue: taskArchiveOrchestrator },
         { provide: TaskDuplicateService, useValue: taskDuplicateService },
         { provide: AddSubtaskInputService, useValue: addSubtaskInputService },
         { provide: FocusModeService, useValue: focusModeService },
@@ -401,7 +406,7 @@ describe('TaskContextMenuInnerComponent', () => {
       items
         .map((el) => ITEM_KEYS.find((key) => el.textContent?.includes(key)))
         .filter((key): key is string => !!key);
-    const openMenu = (): void => {
+    const openMenu = (taskOverrides: Partial<Task> = {}): void => {
       Object.assign(TestBed.inject(GlobalConfigService), {
         appFeatures: () => ({ isFocusModeEnabled: true, isTimeTrackingEnabled: true }),
       });
@@ -410,6 +415,7 @@ describe('TaskContextMenuInnerComponent', () => {
         ...DEFAULT_TASK,
         id: 'task-1',
         projectId: 'project-current',
+        ...taskOverrides,
       } as Task;
       fixture.detectChanges();
       component.contextMenuTrigger()?.openMenu();
@@ -436,6 +442,62 @@ describe('TaskContextMenuInnerComponent', () => {
         T.F.TASK.CMP.MARK_WONT_DO,
         T.F.TASK.CMP.DELETE,
       ]);
+      closeMenus();
+    }));
+
+    // Groups are conditional, so an empty group leaves dividers next to each
+    // other; the .mat-menu-grouped styles must hide all but one of them.
+    const isShown = (el: Element): boolean => getComputedStyle(el).display !== 'none';
+    const shownSibling = (
+      el: Element,
+      dir: 'previousElementSibling' | 'nextElementSibling',
+    ): Element | null => {
+      let sib = el[dir];
+      while (sib && !isShown(sib)) {
+        sib = sib[dir];
+      }
+      return sib;
+    };
+    // direct children only: submenus have their own dividers
+    const shownDividers = (): Element[] =>
+      Array.from(
+        document.querySelectorAll(
+          '.cdk-overlay-container .mat-menu-grouped .mat-mdc-menu-content > .mat-divider',
+        ),
+      ).filter(isShown);
+    const expectDividersBetweenItems = (): void => {
+      const dividers = shownDividers();
+      expect(dividers.length).toBeGreaterThan(0);
+      dividers.forEach((divider) => {
+        expect(
+          shownSibling(divider, 'previousElementSibling')?.hasAttribute('mat-menu-item'),
+        ).toBeTrue();
+        expect(
+          shownSibling(divider, 'nextElementSibling')?.hasAttribute('mat-menu-item'),
+        ).toBeTrue();
+      });
+    };
+    const shownItemBefore = (key: string): Element | null => {
+      const item = overlayItems().find((el) => el.textContent?.includes(key));
+      return item ? shownSibling(item, 'previousElementSibling') : null;
+    };
+
+    it('shows one divider between groups when a group is empty', fakeAsync(() => {
+      openMenu();
+
+      expect(shownDividers().length).toBe(3);
+      expectDividersBetweenItems();
+      expect(shownItemBefore(T.F.TASK.CMP.MARK_WONT_DO)?.classList).toContain(
+        'mat-divider',
+      );
+      closeMenus();
+    }));
+
+    it('shows a divider around the issue group when it is present', fakeAsync(() => {
+      openMenu({ issueId: 'issue-1', issueType: 'GITHUB' } as Partial<Task>);
+
+      expect(shownDividers().length).toBe(4);
+      expectDividersBetweenItems();
       closeMenus();
     }));
 
@@ -948,7 +1010,9 @@ describe('TaskContextMenuInnerComponent', () => {
       taskService.getTasksWithSubTasksByRepeatCfgId$.and.returnValue(
         of([taskWithSubTasks]),
       );
-      taskService.getArchiveTasksForRepeatCfgId.and.returnValue(Promise.resolve([]));
+      taskArchiveOrchestrator.getArchiveTasksForRepeatCfgId.and.returnValue(
+        Promise.resolve([]),
+      );
       // guard against regressing to the throwing selector (the #8715 root cause)
       const repeatCfgService = TestBed.inject(TaskRepeatCfgService);
       (

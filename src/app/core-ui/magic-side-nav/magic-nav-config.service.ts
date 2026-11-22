@@ -38,7 +38,9 @@ import {
 import { GlobalConfigService } from '../../features/config/global-config.service';
 import { AppFeaturesConfig } from '../../features/config/global-config.model';
 import { SnackService } from '../../core/snack/snack.service';
-import { IS_DONATION_UI_RESTRICTED } from '../../app.constants';
+import { DOCS_URL, IS_DONATION_UI_RESTRICTED } from '../../app.constants';
+import { DIALOG_AUTO_FOCUS_TYPING } from '../../util/dialog-auto-focus';
+import { openBuildPluginDialog } from '../../plugins/ui/dialog-build-plugin/open-build-plugin-dialog';
 
 @Injectable({
   providedIn: 'root',
@@ -62,6 +64,9 @@ export class MagicNavConfigService {
     lsGetBoolean(LS.IS_PROJECT_LIST_EXPANDED, true),
   );
   private readonly _isTagsExpanded = signal(lsGetBoolean(LS.IS_TAG_LIST_EXPANDED, true));
+  private readonly _isViewsExpanded = signal(
+    lsGetBoolean(LS.IS_VIEW_LIST_EXPANDED, true),
+  );
 
   // Data signals
   private readonly _mainWorkContext = toSignal(
@@ -116,6 +121,9 @@ export class MagicNavConfigService {
   private readonly isSearchEnabled = computed(
     () => this._configService.appFeatures().isSearchEnabled,
   );
+  readonly isHideNavTaskCount = computed(
+    () => this._configService.misc()?.isHideNavTaskCount ?? false,
+  );
   readonly areInitialTreesReady = computed(() => {
     const visibleProjects = this._visibleProjects();
     const tags = this._tags();
@@ -162,6 +170,9 @@ export class MagicNavConfigService {
       // Separator
       { type: 'separator', id: 'sep-2' },
 
+      // Views Section (boards)
+      ...this._buildViewGroupItems(),
+
       // Projects Section
       {
         type: 'tree',
@@ -182,7 +193,6 @@ export class MagicNavConfigService {
             id: 'project-visibility',
             icon: 'visibility',
             tooltip: T.F.PROJECT_FOLDER.TOOLTIP_VISIBILITY,
-            action: () => this._openProjectVisibilityMenu(),
           },
           {
             id: 'add-project-folder',
@@ -273,7 +283,7 @@ export class MagicNavConfigService {
             id: 'help-online',
             label: T.MH.HM.GET_HELP_ONLINE,
             icon: 'help_center',
-            href: 'https://github.com/super-productivity/super-productivity/blob/master/README.md#question-how-to-use-it',
+            href: DOCS_URL,
           },
           {
             type: 'action',
@@ -308,6 +318,13 @@ export class MagicNavConfigService {
             label: T.MH.HM.REDDIT_COMMUNITY,
             icon: 'forum',
             href: 'https://www.reddit.com/r/superProductivity/',
+          },
+          {
+            type: 'action',
+            id: 'help-build-plugin',
+            label: T.MH.HM.BUILD_PLUGIN,
+            icon: 'extension',
+            action: () => openBuildPluginDialog(this._matDialog),
           },
           {
             type: 'action',
@@ -437,17 +454,6 @@ export class MagicNavConfigService {
       });
     }
 
-    if (this.isBoardsEnabled()) {
-      items.push({
-        type: 'route',
-        id: 'boards',
-        label: T.MH.BOARDS,
-        icon: NAV_SECTION_ICON.BOARDS,
-        route: '/boards',
-        featureConfigKey: 'isBoardsEnabled',
-      });
-    }
-
     if (this.isHabitsEnabled()) {
       items.push({
         type: 'route',
@@ -460,6 +466,23 @@ export class MagicNavConfigService {
     }
 
     return items;
+  }
+
+  // Boards are listed one by one as views, in their own section.
+  private _buildViewGroupItems(): NavItem[] {
+    if (!this.isBoardsEnabled()) {
+      return [];
+    }
+    return [
+      {
+        type: 'viewGroup',
+        id: 'views',
+        label: T.MH.BOARDS,
+        icon: 'expand_more',
+        featureConfigKey: 'isBoardsEnabled',
+        action: () => this._toggleViewsExpanded(),
+      },
+    ];
   }
 
   private _buildPluginItems(): NavItem[] {
@@ -495,6 +518,7 @@ export class MagicNavConfigService {
   // Public computed signals for expansion state (for component to check)
   readonly isProjectsExpanded = computed(() => this._isProjectsExpanded());
   readonly isTagsExpanded = computed(() => this._isTagsExpanded());
+  readonly isViewsExpanded = computed(() => this._isViewsExpanded());
 
   // Public access to projects for visibility menu
   readonly allProjectsExceptInbox = computed(() => this._allProjectsExceptInbox());
@@ -518,12 +542,21 @@ export class MagicNavConfigService {
     lsSetItem(LS.IS_TAG_LIST_EXPANDED, newState);
   }
 
+  private _toggleViewsExpanded(): void {
+    const newState = !this._isViewsExpanded();
+    this._isViewsExpanded.set(newState);
+    lsSetItem(LS.IS_VIEW_LIST_EXPANDED, newState);
+  }
+
   // Simple action handlers
   private async _openCreateProject(): Promise<void> {
     const { DialogCreateProjectComponent } =
       await import('../../features/project/dialogs/create-project/dialog-create-project.component');
     this._matDialog
-      .open(DialogCreateProjectComponent, { restoreFocus: true })
+      .open(DialogCreateProjectComponent, {
+        restoreFocus: true,
+        autoFocus: DIALOG_AUTO_FOCUS_TYPING,
+      })
       .afterClosed()
       .subscribe((newProjectId: string | undefined) => {
         if (newProjectId) {
@@ -535,6 +568,7 @@ export class MagicNavConfigService {
   private _openCreateProjectFolder(): void {
     this._matDialog
       .open(DialogPromptComponent, {
+        autoFocus: DIALOG_AUTO_FOCUS_TYPING,
         restoreFocus: true,
         data: {
           placeholder: T.F.PROJECT_FOLDER.DIALOG.NAME_PLACEHOLDER,
@@ -556,6 +590,7 @@ export class MagicNavConfigService {
   private _openCreateTagFolder(): void {
     this._matDialog
       .open(DialogPromptComponent, {
+        autoFocus: DIALOG_AUTO_FOCUS_TYPING,
         restoreFocus: true,
         data: {
           placeholder: T.F.TAG_FOLDER.DIALOG.NAME_PLACEHOLDER,
@@ -577,6 +612,7 @@ export class MagicNavConfigService {
   private _createNewTag(): void {
     this._matDialog
       .open(DialogCreateTagComponent, {
+        autoFocus: DIALOG_AUTO_FOCUS_TYPING,
         restoreFocus: true,
       })
       .afterClosed()
@@ -605,11 +641,6 @@ export class MagicNavConfigService {
 
   private _startTour(tourId: TourId): void {
     void this._shepherdService.show(tourId);
-  }
-
-  private _openProjectVisibilityMenu(): void {
-    // Project visibility is handled by the nav-list component's additional buttons
-    // This method is called but the actual menu is rendered in the template
   }
 
   toggleProjectVisibility(projectId: string): void {

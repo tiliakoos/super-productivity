@@ -185,7 +185,9 @@ export class TaskElectronEffects {
               more: this._translateService.instant(T.G.MORE_ACTIONS),
               complete: this._translateService.instant(T.G.COMPLETE),
               add: this._translateService.instant(T.F.TASK.ADD_TASK_BAR.TOOLTIP_ADD_TASK),
-              project: this._translateService.instant(T.F.BOARDS.FORM.PROJECT),
+              project: this._translateService.instant(
+                T.F.TASK_VIEW.CUSTOMIZER.GROUP_PROJECT,
+              ),
               quit: this._translateService.instant(T.F.FINISH_DAY_BEFORE_EXIT.C.QUIT),
               openMain: this._translateService.instant(T.G.TRAY_POPOVER_OPEN_MAIN),
               empty: this._translateService.instant(T.G.TRAY_POPOVER_EMPTY),

@@ -15,7 +15,9 @@ import {
   selectTaskOrderIndex,
   selectTaskSchedulingSnapshotRecord,
 } from '../../tasks/store/task.selectors';
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- fork: the Today list sorts by day order
 import { compareByDayRank } from '../../tasks/task-order.util';
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- fork: nested sub tasks need the tree helpers
 import { getDescendantIds, hasAncestorInSet } from '../../tasks/util/task-tree.util';
 import { Task, TaskWithDueTime, TaskWithSubTasks } from '../../tasks/task.model';
 import { devError } from '../../../util/dev-error';

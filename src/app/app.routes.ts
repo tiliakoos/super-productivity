@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 
 import {
   ActiveWorkContextGuard,
+  BoardRouteGuard,
   DefaultStartPageGuard,
   DonatePageGuard,
   FocusOverlayOpenGuard,
@@ -93,7 +94,16 @@ export const APP_ROUTES: Routes = [
       page: 'boards',
       featureConfigKey: 'isBoardsEnabled',
     },
-    canActivate: [FeatureEnabledGuard, FocusOverlayOpenGuard],
+    canActivate: [FeatureEnabledGuard, FocusOverlayOpenGuard, BoardRouteGuard],
+  },
+  {
+    path: 'boards/:boardId',
+    loadComponent: () => import('./routes/pages.routes').then((m) => m.BoardsComponent),
+    data: {
+      page: 'boards',
+      featureConfigKey: 'isBoardsEnabled',
+    },
+    canActivate: [FeatureEnabledGuard, FocusOverlayOpenGuard, BoardRouteGuard],
   },
   {
     path: 'habits',

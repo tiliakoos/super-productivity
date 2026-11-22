@@ -6,7 +6,7 @@ import { of, BehaviorSubject, ReplaySubject } from 'rxjs';
 import { CalendarIntegrationService } from '../calendar-integration/calendar-integration.service';
 import { GlobalTrackingIntervalService } from '../../core/global-tracking-interval/global-tracking-interval.service';
 import {
-  selectAllTasksWithDueTime,
+  selectAllTasksWithDueTimeSorted,
   selectMapOfAllTasksInActiveProjects,
   selectTaskOrderIndex,
 } from '../tasks/store/task.selectors';
@@ -52,7 +52,7 @@ describe('PlannerService', () => {
         DateService,
         provideMockStore({
           selectors: [
-            { selector: selectAllTasksWithDueTime, value: [] },
+            { selector: selectAllTasksWithDueTimeSorted, value: [] },
             { selector: selectActiveTaskRepeatCfgs, value: [] },
             { selector: selectTodayTaskIds, value: [] },
             { selector: selectMapOfAllTasksInActiveProjects, value: new Map() },

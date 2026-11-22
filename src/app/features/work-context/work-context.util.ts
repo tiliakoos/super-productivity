@@ -1,5 +1,7 @@
-import { TaskWithSubTasks } from '../tasks/task.model';
+import { Task, TaskWithSubTasks } from '../tasks/task.model';
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- fork: nested sub tasks need the tree helpers
 import { sumSubTaskTimeLeft } from '../tasks/util/sum-sub-task-time-left';
+import { isTodayWithOffset } from '../../util/is-today.util';
 
 /**
  * Order completed tasks by when they were completed, newest first, so the most
@@ -7,8 +9,34 @@ import { sumSubTaskTimeLeft } from '../tasks/util/sum-sub-task-time-left';
  * it usually comes from a memoized selector that must not be mutated. Tasks
  * without a `doneOn` timestamp sort last.
  */
-export const sortDoneTasksByDoneDate = (tasks: TaskWithSubTasks[]): TaskWithSubTasks[] =>
-  [...tasks].sort((a, b) => (b.doneOn ?? 0) - (a.doneOn ?? 0));
+export const sortDoneTasksByDoneDate = <T extends Pick<Task, 'doneOn'>>(
+  tasks: T[],
+): T[] => [...tasks].sort((a, b) => (b.doneOn ?? 0) - (a.doneOn ?? 0));
+
+// Range-guarded: `isTodayWithOffset` throws on an invalid timestamp, and one
+// corrupt task would otherwise error the whole Today Done list stream.
+const isValidTsToday = (
+  ts: number | null | undefined,
+  todayStr: string,
+  startOfNextDayDiffMs: number,
+): boolean =>
+  !!ts &&
+  new Date(ts).getTime() > 0 &&
+  isTodayWithOffset(ts, todayStr, startOfNextDayDiffMs);
+
+/**
+ * Whether a done task belongs to Today's Done list: due today (by day or time)
+ * or completed today. Done tasks from earlier days stay in their project's Done
+ * list until archived, so Today's list doesn't grow with every unarchived one.
+ */
+export const isDoneTaskForToday = (
+  task: Pick<Task, 'dueDay' | 'dueWithTime' | 'doneOn'>,
+  todayStr: string,
+  startOfNextDayDiffMs: number,
+): boolean =>
+  task.dueDay === todayStr ||
+  isValidTsToday(task.dueWithTime, todayStr, startOfNextDayDiffMs) ||
+  isValidTsToday(task.doneOn, todayStr, startOfNextDayDiffMs);
 
 export const mapEstimateRemainingFromTasks = (tasks: TaskWithSubTasks[]): number =>
   tasks &&

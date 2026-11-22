@@ -30,6 +30,7 @@ import { TranslateService } from '@ngx-translate/core';
 import { PlannerService } from '../../planner/planner.service';
 import { selectAllTasksDueToday } from '../../planner/store/planner.selectors';
 import { selectTaskFeatureState } from '../../tasks/store/task.selectors';
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- fork: nested sub tasks need the tree helpers
 import { hasAncestorInSet } from '../../tasks/util/task-tree.util';
 import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import { Log } from '../../../core/log';

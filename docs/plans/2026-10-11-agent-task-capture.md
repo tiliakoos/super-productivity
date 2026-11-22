@@ -85,6 +85,17 @@ The local `create_task` of #10251 takes the same optional fields with the
 same validation (#10833); invalid input is rejected, not dropped, and a timed
 one-off is likewise scheduled in its one `addTask`.
 
+Also added, on both tools: optional `deadlineDate` (`YYYY-MM-DD`),
+`deadlineTime` (`HH:MM`, needs `deadlineDate`) and `estimateMinutes` (whole
+minutes, 1–10080). Same rules as the due fields: optional v1 payload fields
+that released apps ignore, resolved in the importing device's time zone
+into `deadlineDay` or `deadlineWithTime` and `timeEstimate` inside the one
+`addTask` (the add-task bar's own way of setting a deadline at creation, so
+no `setDeadline` op), with the `addTask` auto-plan fields so a deadline of
+today plans the task for today. A deadline is refused with `repeat` (a
+repeat config has no deadline; the hosted import drops it), and the retry
+window keys on all three.
+
 ## Flow
 
 1. Settings → SuperSync → **"Let AI assistants add tasks"** (off by default).
@@ -182,8 +193,11 @@ server scales out.` A deliberate identical repeat within 10 minutes is merged.
 | `POST /api/capture/connect-code`                                      | Mint the code (replaces the previous one)                                                                                                                                                                                 |
 | `POST /api/capture/tokens`                                            | Create a capture token                                                                                                                                                                                                    |
 | `GET /api/capture/grants`, `DELETE /api/capture/grants/:id?discard=1` | List and revoke                                                                                                                                                                                                           |
+| `POST /api/capture/items`                                             | Store `{ id, fingerprint, ciphertext }` a device sealed itself (Android share, [plan](2026-10-24-android-share-capture.md)). Idempotent by `id`; 409 `switched_off`, `key_mismatch`, `queue_full`, `id_conflict`          |
 
-**`taskId` rule.** An item gets `taskId = itemId` on first lease. A
+**`taskId` rule.** An item gets `taskId = itemId` on first lease; a
+device-sealed item (`POST /items`) gets a server-issued `taskId` at insert
+instead, since its id is the device's own. A
 different `deviceId` taking over an expired lease gets a fresh `taskId`. A
 device always gets back the `taskId` it was given. So two devices never create
 the same task id, and acks from an old lease can't delete a newer one.
